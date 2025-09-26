@@ -41,18 +41,6 @@ const Login = ({ onLogin }) => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-black px-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="flex items-center justify-center mb-8">
-          <div className="flex items-center gap-2">
-            <span className="bg-gradient-to-r from-primary-500 to-primary-600 px-4 py-2 rounded-xl text-white font-black text-2xl shadow-glow">
-              TV
-            </span>
-            <span className="gradient-text font-black text-3xl tracking-tight">
-              Flix
-            </span>
-          </div>
-        </div>
-
         {/* Login Form */}
         <div className="bg-neutral-900/80 backdrop-blur-sm p-6 sm:p-8 rounded-2xl shadow-2xl border border-white/10">
           <h2 className="text-2xl font-bold text-white mb-6 text-center">
@@ -124,7 +112,6 @@ const Login = ({ onLogin }) => {
         </div>
 
         <div className="mt-8 text-center text-white/40 text-xs">
-          © 2024 TVFlix. Tutti i diritti riservati.
         </div>
       </div>
     </div>
