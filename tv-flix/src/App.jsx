@@ -739,16 +739,10 @@ function ChannelCard({ channel, onOpen }) {
   const currentThumbnail = thumbnailError ? fallbackThumbnail : channel.thumbnail;
   const currentLogo = logoError ? fallbackThumbnail : channel.logo;
   
-  // Gestione click specifica per iOS
+  // Gestione click - usa sempre il player interno per controllo completo
   const handleClick = () => {
-    // Su iOS con HLS disponibile, offri l'opzione di usare il player nativo
-    if (isIOS && channel.hlsSrc) {
-      // Apre direttamente il player nativo iOS
-      window.location.href = channel.hlsSrc;
-      return;
-    }
-    
-    // Comportamento predefinito per altri dispositivi
+    // Usa sempre il player interno per garantire funzionamento
+    // Il player nativo può essere attivato manualmente dal pulsante dedicato
     onOpen(channel);
   };
 
@@ -1093,23 +1087,13 @@ function PlayerModal({ open, channel, onClose }) {
         document.msFullscreenEnabled
       );
       
-      // Strategia iOS ottimizzata
+      // Strategia iOS ottimizzata - usa sempre fullscreen simulato per controllo completo
       if (isIOS && video) {
         if (!isFullscreen) {
           setIsFullscreen(true);
           
-          // Prima prova il fullscreen nativo del video su iOS
-          if (typeof video.webkitEnterFullscreen === 'function') {
-            try {
-              await video.webkitEnterFullscreen();
-              // Su iOS, il fullscreen nativo gestisce tutto automaticamente
-              return;
-            } catch (iosError) {
-              console.info('Fullscreen nativo iOS non disponibile, uso fallback');
-            }
-          }
-          
-          // Fallback iOS: fullscreen simulato ottimizzato
+          // Usa sempre fullscreen simulato su iOS per garantire funzionamento
+          // Il player nativo può essere attivato manualmente dall'utente se desiderato
           document.body.style.overflow = 'hidden';
           document.body.style.position = 'fixed';
           document.body.style.width = '100%';
@@ -1126,23 +1110,30 @@ function PlayerModal({ open, channel, onClose }) {
           container.style.zIndex = '9999';
           container.style.backgroundColor = '#000';
           
-          // Ottimizzazioni video per iOS
+          // Ottimizzazioni video per iOS - garantisce fullscreen robusto
           video.playsInline = true; // Mantieni playsinline per controllo
+          video.controls = false; // Assicura che i controlli custom siano sempre visibili
           video.style.width = '100%';
           video.style.height = '100%';
           video.style.objectFit = 'contain';
+          video.style.position = 'relative'; // Evita conflitti di posizionamento
           
-          // Nasconde la UI del browser iOS quando possibile
+          // Nascondi viewport per esperienza immersiva
+          const viewport = document.querySelector('meta[name=viewport]');
+          if (viewport) {
+            viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
+          }
+          
+          // Suggerimento home screen solo se necessario
           setTimeout(() => {
             if (window.navigator.standalone === false) {
-              // Suggerisce di aggiungere alla home screen per esperienza fullscreen
               const hint = document.createElement('div');
-              hint.className = 'absolute bottom-4 left-4 right-4 bg-black/90 text-white p-3 rounded-lg text-sm z-50';
-              hint.innerHTML = '💡 Per un\'esperienza migliore, aggiungi alla Home Screen';
+              hint.className = 'absolute bottom-20 left-4 right-4 bg-black/90 text-white p-3 rounded-lg text-sm z-50 animate-fade-in-up';
+              hint.innerHTML = '💡 Aggiungi alla Home Screen per esperienza ottimale';
               container.appendChild(hint);
-              setTimeout(() => hint.remove(), 4000);
+              setTimeout(() => hint.remove(), 5000);
             }
-          }, 1000);
+          }, 2000);
           
           // Lock orientamento se disponibile
           if (typeof window.screen?.orientation?.lock === 'function') {
@@ -1159,19 +1150,10 @@ function PlayerModal({ open, channel, onClose }) {
           }
           
         } else {
-          // Exit fullscreen iOS
+          // Exit fullscreen iOS - usa sempre gestione manuale per controllo completo
           setIsFullscreen(false);
           
-          // Se era fullscreen nativo
-          if (typeof video.webkitExitFullscreen === 'function') {
-            try {
-              await video.webkitExitFullscreen();
-            } catch (e) {
-              // Continua con cleanup manuale
-            }
-          }
-          
-          // Cleanup manuale
+          // Cleanup manuale (sempre)
           const scrollY = document.body.style.top;
           document.body.style.overflow = '';
           document.body.style.position = '';
@@ -1192,10 +1174,17 @@ function PlayerModal({ open, channel, onClose }) {
           container.style.zIndex = '';
           container.style.backgroundColor = '';
           
-          // Ripristina video
+          // Ripristina video e viewport
           video.style.width = '';
           video.style.height = '';
           video.style.objectFit = '';
+          video.style.position = '';
+          
+          // Ripristina viewport originale
+          const viewport = document.querySelector('meta[name=viewport]');
+          if (viewport) {
+            viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, viewport-fit=cover');
+          }
           
           // Unlock orientamento
           if (typeof window.screen?.orientation?.unlock === 'function') {
@@ -2218,6 +2207,13 @@ function PlayerModal({ open, channel, onClose }) {
                       <span className="text-white text-sm font-bold">STREAMING HLS</span>
                     </div>
                     
+                    {/* Indicatore fullscreen disponibile su mobile */}
+                    {(isIOS || /Android|Mobile/i.test(navigator.userAgent)) && (
+                      <div className="flex items-center gap-1 bg-green-600/20 px-3 py-1 rounded-full">
+                        <span className="text-green-400 text-xs">📱 Fullscreen disponibile</span>
+                      </div>
+                    )}
+                    
                     {/* Indicatore qualità rete */}
                     {networkQuality !== 'unknown' && (
                       <div className={`
@@ -2342,6 +2338,33 @@ function PlayerModal({ open, channel, onClose }) {
                   </div>
 
                   <div className="flex items-center gap-1.5 xs:gap-2 sm:gap-3">
+                    {/* Player nativo iOS (solo se iOS e HLS disponibile) */}
+                    {isIOS && channel.hlsSrc && (
+                      <button
+                        onClick={async () => {
+                          const video = videoRef.current;
+                          if (video && typeof video.webkitEnterFullscreen === 'function') {
+                            try {
+                              await video.webkitEnterFullscreen();
+                            } catch (error) {
+                              alert('Player nativo iOS non disponibile al momento. Usa il fullscreen normale.');
+                            }
+                          } else {
+                            alert('Player nativo non supportato su questo dispositivo.');
+                          }
+                        }}
+                        className="
+                          w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full 
+                          bg-blue-600/20 hover:bg-blue-600/40 active:bg-blue-600/60 text-blue-400 transition-all duration-200
+                          hover:scale-110 active:scale-95 touch-manipulation
+                          min-h-[44px] min-w-[44px] border border-blue-500/20
+                        "
+                        title="Player nativo iOS"
+                      >
+                        <span className="text-sm xs:text-base sm:text-lg">🍎</span>
+                      </button>
+                    )}
+
                     {/* AirPlay - sempre visibile per canali HLS */}
                     <button
                       onClick={() => {
@@ -2392,9 +2415,10 @@ function PlayerModal({ open, channel, onClose }) {
                   <div className="font-semibold mb-2">Scorciatoie:</div>
                   {mode === "hls" ? (
                     <div>
-                      <div>� HLS STREAMING</div>
+                      <div>🔴 HLS STREAMING</div>
                       <div>Spazio: Play • F: Fullscreen • M: Muto</div>
                       <div>↑↓: Volume • Pausa disabilitata</div>
+                      {isIOS && <div className="mt-1 text-blue-400">🍎 Player nativo disponibile</div>}
                     </div>
                   ) : (
                     <div>
