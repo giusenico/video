@@ -887,6 +887,23 @@ function PlayerModal({ open, channel, onClose }) {
 
   // Rilevamento del sistema operativo per ottimizzazioni specifiche
   const [isIOS, setIsIOS] = useState(false);
+
+  // Helper functions per feedback visivo su touch
+  const showSeekFeedback = (text, container) => {
+    const feedback = document.createElement('div');
+    feedback.className = 'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/80 text-white px-4 py-2 rounded-lg text-lg font-bold z-50 pointer-events-none animate-fade-in';
+    feedback.textContent = text;
+    container.appendChild(feedback);
+    setTimeout(() => feedback.remove(), 1500);
+  };
+
+  const showVolumeFeedback = (text, container) => {
+    const feedback = document.createElement('div');
+    feedback.className = 'absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/80 text-white px-3 py-2 rounded-lg text-sm font-bold z-50 pointer-events-none animate-fade-in-up';
+    feedback.innerHTML = `🔊 ${text}`;
+    container.appendChild(feedback);
+    setTimeout(() => feedback.remove(), 1200);
+  };
   
   useEffect(() => {
     const ua = navigator.userAgent;
@@ -1061,14 +1078,14 @@ function PlayerModal({ open, channel, onClose }) {
     };
   }, [open, isFullscreen, isIOS]);
 
-  // Gestione fullscreen avanzata con supporto mobile
+  // Gestione fullscreen avanzata con supporto mobile ottimizzato
   const toggleFullscreen = async () => {
     const container = containerRef.current;
     const video = videoRef.current;
     if (!container) return;
     
     try {
-      // Rileva se è possibile il fullscreen nativo
+      // Rileva capacità fullscreen del device
       const canUseNativeFullscreen = !!(
         document.fullscreenEnabled ||
         document.webkitFullscreenEnabled ||
@@ -1076,111 +1093,210 @@ function PlayerModal({ open, channel, onClose }) {
         document.msFullscreenEnabled
       );
       
-      // Soluzione specifica per iOS dove il fullscreen API non è completamente supportato
+      // Strategia iOS ottimizzata
       if (isIOS && video) {
         if (!isFullscreen) {
-          // Su iOS, imposta manualmente lo stato fullscreen e ruota in landscape
           setIsFullscreen(true);
-          // iOS richiede che il video sia in fullscreen e playsinline sia impostato
-          video.playsInline = false;
+          
+          // Prima prova il fullscreen nativo del video su iOS
           if (typeof video.webkitEnterFullscreen === 'function') {
-            await video.webkitEnterFullscreen();
-          } else {
-            // Fallback: simula fullscreen su iOS
-            container.style.position = 'fixed';
-            container.style.top = '0';
-            container.style.left = '0';
-            container.style.width = '100vw';
-            container.style.height = '100vh';
-            container.style.zIndex = '10000';
-            container.style.backgroundColor = 'black';
-            container.style.transform = 'translateZ(0)';
-          }
-          // Forza l'orientamento landscape su iOS dove possibile
-          if (typeof window.screen?.orientation?.lock === 'function') {
             try {
-              await window.screen.orientation.lock('landscape');
-            } catch (e) {
-              // Orientamento manuale non supportato, ignora
+              await video.webkitEnterFullscreen();
+              // Su iOS, il fullscreen nativo gestisce tutto automaticamente
+              return;
+            } catch (iosError) {
+              console.info('Fullscreen nativo iOS non disponibile, uso fallback');
             }
           }
-        } else {
-          // Esci da fullscreen per iOS
-          setIsFullscreen(false);
-          video.playsInline = true;
-          if (typeof video.webkitExitFullscreen === 'function') {
-            await video.webkitExitFullscreen();
-          } else {
-            // Rimuovi lo stile fullscreen simulato
-            container.style.position = '';
-            container.style.top = '';
-            container.style.left = '';
-            container.style.width = '';
-            container.style.height = '';
-            container.style.zIndex = '';
-            container.style.backgroundColor = '';
-            container.style.transform = '';
-          }
-          // Sblocca l'orientamento su iOS
-          if (typeof window.screen?.orientation?.unlock === 'function') {
-            try {
-              window.screen.orientation.unlock();
-            } catch (e) {
-              // Unlock non supportato, ignora
-            }
-          }
-        }
-        return;
-      }
-      
-      // Comportamento standard per browser desktop e Android
-      if (!isFullscreen) {
-        // Entra in fullscreen
-        if (container.requestFullscreen) {
-          await container.requestFullscreen();
-        } else if (container.webkitRequestFullscreen) {
-          await container.webkitRequestFullscreen();
-        } else if (container.mozRequestFullScreen) {
-          await container.mozRequestFullScreen();
-        } else if (container.msRequestFullscreen) {
-          await container.msRequestFullscreen();
-        } else {
-          // Fallback se l'API fullscreen non è supportata
-          setIsFullscreen(true);
+          
+          // Fallback iOS: fullscreen simulato ottimizzato
           document.body.style.overflow = 'hidden';
+          document.body.style.position = 'fixed';
+          document.body.style.width = '100%';
+          document.body.style.height = '100%';
+          document.body.style.top = `-${window.scrollY}px`;
+          
+          container.classList.add('ios-fullscreen');
           container.style.position = 'fixed';
           container.style.top = '0';
           container.style.left = '0';
           container.style.width = '100vw';
           container.style.height = '100vh';
-          container.style.zIndex = '10000';
-        }
-      } else {
-        // Esci da fullscreen
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-          await document.webkitExitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-          await document.mozCancelFullScreen();
-        } else if (document.msExitFullscreen) {
-          await document.msExitFullscreen();
+          container.style.height = '-webkit-fill-available';
+          container.style.zIndex = '9999';
+          container.style.backgroundColor = '#000';
+          
+          // Ottimizzazioni video per iOS
+          video.playsInline = true; // Mantieni playsinline per controllo
+          video.style.width = '100%';
+          video.style.height = '100%';
+          video.style.objectFit = 'contain';
+          
+          // Nasconde la UI del browser iOS quando possibile
+          setTimeout(() => {
+            if (window.navigator.standalone === false) {
+              // Suggerisce di aggiungere alla home screen per esperienza fullscreen
+              const hint = document.createElement('div');
+              hint.className = 'absolute bottom-4 left-4 right-4 bg-black/90 text-white p-3 rounded-lg text-sm z-50';
+              hint.innerHTML = '💡 Per un\'esperienza migliore, aggiungi alla Home Screen';
+              container.appendChild(hint);
+              setTimeout(() => hint.remove(), 4000);
+            }
+          }, 1000);
+          
+          // Lock orientamento se disponibile
+          if (typeof window.screen?.orientation?.lock === 'function') {
+            try {
+              await window.screen.orientation.lock('landscape-primary');
+            } catch (lockError) {
+              // Tenta landscape generico
+              try {
+                await window.screen.orientation.lock('landscape');
+              } catch (e) {
+                console.info('Lock orientamento non supportato');
+              }
+            }
+          }
+          
         } else {
-          // Fallback per l'uscita da fullscreen simulato
+          // Exit fullscreen iOS
           setIsFullscreen(false);
+          
+          // Se era fullscreen nativo
+          if (typeof video.webkitExitFullscreen === 'function') {
+            try {
+              await video.webkitExitFullscreen();
+            } catch (e) {
+              // Continua con cleanup manuale
+            }
+          }
+          
+          // Cleanup manuale
+          const scrollY = document.body.style.top;
           document.body.style.overflow = '';
+          document.body.style.position = '';
+          document.body.style.width = '';
+          document.body.style.height = '';
+          document.body.style.top = '';
+          
+          if (scrollY) {
+            window.scrollTo(0, parseInt(scrollY.replace('px', '')) * -1);
+          }
+          
+          container.classList.remove('ios-fullscreen');
           container.style.position = '';
           container.style.top = '';
           container.style.left = '';
           container.style.width = '';
           container.style.height = '';
           container.style.zIndex = '';
+          container.style.backgroundColor = '';
+          
+          // Ripristina video
+          video.style.width = '';
+          video.style.height = '';
+          video.style.objectFit = '';
+          
+          // Unlock orientamento
+          if (typeof window.screen?.orientation?.unlock === 'function') {
+            try {
+              window.screen.orientation.unlock();
+            } catch (e) {
+              console.info('Unlock orientamento non supportato');
+            }
+          }
+        }
+        return;
+      }
+      
+      // Strategia Android e Desktop
+      if (!isFullscreen) {
+        // Tenta fullscreen nativo
+        let fullscreenMethod = 
+          container.requestFullscreen ||
+          container.webkitRequestFullscreen ||
+          container.mozRequestFullScreen ||
+          container.msRequestFullscreen;
+          
+        if (fullscreenMethod && canUseNativeFullscreen) {
+          try {
+            await fullscreenMethod.call(container);
+            // Il listener fullscreenchange gestirà lo stato
+          } catch (nativeError) {
+            console.warn('Fullscreen nativo fallito, uso simulato:', nativeError);
+            // Fallback a fullscreen simulato
+            await simulateFullscreen(container, true);
+          }
+        } else {
+          // Fullscreen simulato per browser senza supporto
+          await simulateFullscreen(container, true);
+        }
+      } else {
+        // Exit fullscreen
+        let exitMethod =
+          document.exitFullscreen ||
+          document.webkitExitFullscreen ||
+          document.mozCancelFullScreen ||
+          document.msExitFullscreen;
+          
+        if (exitMethod && document.fullscreenElement) {
+          try {
+            await exitMethod.call(document);
+          } catch (exitError) {
+            console.warn('Exit fullscreen nativo fallito:', exitError);
+            await simulateFullscreen(container, false);
+          }
+        } else {
+          await simulateFullscreen(container, false);
         }
       }
     } catch (error) {
-      console.warn('Errore fullscreen:', error);
-      // Fallback se il metodo standard fallisce
+      console.error('Errore gestione fullscreen:', error);
+      // Fallback di emergenza
       setIsFullscreen(!isFullscreen);
+    }
+  };
+
+  // Helper per fullscreen simulato
+  const simulateFullscreen = async (container, enter) => {
+    if (enter) {
+      setIsFullscreen(true);
+      document.body.style.overflow = 'hidden';
+      container.style.position = 'fixed';
+      container.style.top = '0';
+      container.style.left = '0';
+      container.style.width = '100vw';
+      container.style.height = '100vh';
+      container.style.zIndex = '9999';
+      container.style.backgroundColor = '#000';
+      
+      // Lock orientamento su mobile
+      if (typeof window.screen?.orientation?.lock === 'function') {
+        try {
+          await window.screen.orientation.lock('landscape');
+        } catch (e) {
+          // Ignora errori lock orientamento
+        }
+      }
+    } else {
+      setIsFullscreen(false);
+      document.body.style.overflow = '';
+      container.style.position = '';
+      container.style.top = '';
+      container.style.left = '';
+      container.style.width = '';
+      container.style.height = '';
+      container.style.zIndex = '';
+      container.style.backgroundColor = '';
+      
+      // Unlock orientamento
+      if (typeof window.screen?.orientation?.unlock === 'function') {
+        try {
+          window.screen.orientation.unlock();
+        } catch (e) {
+          // Ignora errori unlock
+        }
+      }
     }
   };
 
@@ -1410,70 +1526,285 @@ function PlayerModal({ open, channel, onClose }) {
       const Hls = await ensureHls();
       if (destroyed) return;
       if (Hls.isSupported()) {
-        hls = new Hls({ 
+        // Configurazione HLS ottimizzata per mobile
+        const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isLowEndDevice = navigator.deviceMemory ? navigator.deviceMemory <= 2 : false;
+        const isSlowConnection = navigator.connection ? 
+          (navigator.connection.effectiveType === '2g' || navigator.connection.effectiveType === 'slow-2g') : false;
+
+        const hlsConfig = {
           enableWorker: true,
-          startLevel: -1, // Auto quality per iniziare
+          startLevel: -1, // Auto quality
           capLevelToPlayerSize: true,
-          // Ottimizzazioni per mobile
-          abrEwmaDefaultEstimate: 500000, // Partire con stima 500kbps per device mobili
-          abrBandWidthFactor: 0.8, // Più conservativo su mobile (80% della banda)
-          abrBandWidthUpFactor: 0.7, // Aumenta qualità più lentamente
-          maxBufferLength: 30, // Buffer più lungo per connessioni instabili
-          maxMaxBufferLength: 60, 
-          testBandwidth: true,
-          lowLatencyMode: true, // Riduce latenza per streaming live
-          fragLoadingMaxRetry: 4, // Più tentativi su reti mobili instabili
-          manifestLoadingMaxRetry: 4,
-          levelLoadingMaxRetry: 4,
-          progressive: true, // Streaming progressivo per startup più veloce
-          backBufferLength: 30 // Mantieni buffer indietro per connessioni instabili
-        });
+          
+          // Ottimizzazioni specifiche per mobile
+          abrEwmaDefaultEstimate: isMobile ? 300000 : 500000, // Stima iniziale più conservativa su mobile
+          abrBandWidthFactor: isMobile ? 0.7 : 0.8, // Più conservativo su mobile
+          abrBandWidthUpFactor: isMobile ? 0.6 : 0.7, // Aumenta qualità più lentamente su mobile
+          abrMaxWithRealBitrate: true, // Usa bitrate reale per decisioni ABR
+          
+          // Buffer management ottimizzato per connessioni mobili
+          maxBufferLength: isSlowConnection ? 60 : (isMobile ? 30 : 20), // Buffer più lungo su connessioni lente
+          maxMaxBufferLength: isSlowConnection ? 120 : (isMobile ? 60 : 30),
+          maxBufferSize: isLowEndDevice ? 30 * 1000 * 1000 : 60 * 1000 * 1000, // 30MB per device low-end
+          maxBufferHole: isMobile ? 0.7 : 0.5, // Tolleranza gap nel buffer
+          
+          // Loading e retry ottimizzati per mobile
+          fragLoadingMaxRetry: isMobile ? 6 : 4, // Più tentativi su mobile
+          fragLoadingMaxRetryTimeout: isMobile ? 8000 : 4000, // Timeout più lungo su mobile
+          manifestLoadingMaxRetry: 6,
+          manifestLoadingMaxRetryTimeout: 8000,
+          levelLoadingMaxRetry: 6,
+          levelLoadingMaxRetryTimeout: 8000,
+          
+          // Streaming progressivo per startup più veloce
+          progressive: true,
+          lowLatencyMode: false, // Disabilita su mobile per risparmiare batteria
+          
+          // Buffer management avanzato
+          backBufferLength: isMobile ? 60 : 30, // Buffer indietro più lungo su mobile
+          livelsLoadingTimeOut: 15000, // Timeout caricamento livelli
+          
+          // Ottimizzazioni network specifiche
+          testBandwidth: !isSlowConnection, // Disabilita test banda su connessioni lente
+          
+          // Configurazioni per device low-end
+          ...(isLowEndDevice && {
+            startLevel: 0, // Inizia sempre con qualità più bassa
+            abrEwmaDefaultEstimate: 200000, // Stima molto conservativa
+            maxBufferLength: 20,
+            maxMaxBufferLength: 40,
+            enableWorker: false // Disabilita worker su device molto vecchi
+          }),
+          
+          // Configurazioni per connessioni molto lente
+          ...(isSlowConnection && {
+            startLevel: 0,
+            abrBandWidthFactor: 0.5, // Molto conservativo
+            fragLoadingMaxRetry: 8,
+            fragLoadingMaxRetryTimeout: 12000
+          })
+        };
+        
+        hls = new Hls(hlsConfig);
         hlsInstanceRef.current = hls; // Salviamo il riferimento per controlli esterni
         hls.loadSource(channel.hlsSrc);
         hls.attachMedia(video);
         
-        // Event listeners ottimizzati
+        // Event listeners ottimizzati per mobile
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           setAirplayAvailable(false);
+          setIsLoading(false);
           
-          // Tenta play automatico
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(error => {
-              console.info('Autoplay impedito dal browser:', error);
-              setIsPlaying(false);
-              setShowControls(true);
-            });
+          console.info(`HLS: Manifest caricato, ${hls.levels.length} livelli di qualità disponibili`);
+          
+          // Su mobile, forza un livello iniziale appropriato
+          if (isMobile && hls.levels.length > 0) {
+            const maxMobileBitrate = isSlowConnection ? 800000 : 1500000; // 800k per connessioni lente, 1.5M per normali
+            const appropriateLevel = hls.levels.findIndex(level => level.bitrate <= maxMobileBitrate);
+            if (appropriateLevel !== -1) {
+              hls.startLevel = appropriateLevel;
+              console.info(`Mobile: Impostato livello iniziale ${appropriateLevel} (${hls.levels[appropriateLevel].bitrate}bps)`);
+            }
           }
           
-          // Nascondi loading quando streaming è pronto
-          setIsLoading(false);
+          // Strategia autoplay migliorata
+          const attemptPlay = async () => {
+            try {
+              // Su mobile inizia sempre con volume basso per autoplay
+              if (isMobile) {
+                video.volume = 0.1;
+                video.muted = false;
+              }
+              
+              const playPromise = video.play();
+              if (playPromise !== undefined) {
+                await playPromise;
+                setIsPlaying(true);
+                console.info('HLS: Autoplay riuscito');
+                
+                // Ripristina volume gradualmente su mobile
+                if (isMobile && !isMuted) {
+                  let currentVol = 0.1;
+                  const targetVol = volume;
+                  const volumeInterval = setInterval(() => {
+                    currentVol = Math.min(targetVol, currentVol + 0.1);
+                    video.volume = currentVol;
+                    if (currentVol >= targetVol) {
+                      clearInterval(volumeInterval);
+                    }
+                  }, 200);
+                }
+              }
+            } catch (error) {
+              console.info('HLS: Autoplay fallito, provo con muted:', error);
+              try {
+                video.muted = true;
+                setIsMuted(true);
+                await video.play();
+                setIsPlaying(true);
+                setShowControls(true);
+                
+                // Mostra hint per sbloccare audio
+                if (isMobile) {
+                  const audioHint = document.createElement('div');
+                  audioHint.className = 'absolute bottom-20 left-4 right-4 bg-yellow-600/90 text-white p-3 rounded-lg text-sm z-50 animate-fade-in-up';
+                  audioHint.innerHTML = '🔇 Audio disattivato per autoplay - Tocca per attivarlo';
+                  audioHint.onclick = () => {
+                    video.muted = false;
+                    setIsMuted(false);
+                    video.volume = volume;
+                    audioHint.remove();
+                    if (navigator.vibrate) navigator.vibrate(50);
+                  };
+                  video.parentElement?.appendChild(audioHint);
+                  setTimeout(() => audioHint.remove(), 6000);
+                }
+              } catch (mutedError) {
+                console.info('HLS: Autoplay completamente impedito');
+                setIsPlaying(false);
+                setShowControls(true);
+              }
+            }
+          };
+          
+          // Ritardo appropriato per mobile
+          setTimeout(attemptPlay, isMobile ? 500 : 100);
         });
         
-        // Gestione livelli di qualità
+        // Gestione avanzata livelli di qualità con feedback mobile
         hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
-          console.info(`HLS: Cambio qualità a livello ${data.level}`); 
-          // Il livello più basso è generalmente più veloce a caricare
+          const level = hls.levels[data.level];
+          console.info(`HLS: Cambio qualità → Livello ${data.level} (${Math.round(level.bitrate/1000)}kbps, ${level.width}x${level.height})`);
+          
+          // Su mobile, mostra brevemente la qualità corrente
+          if (isMobile && isPlaying) {
+            const qualityIndicator = document.createElement('div');
+            qualityIndicator.className = 'absolute top-4 right-4 bg-black/80 text-white px-3 py-1 rounded-lg text-xs z-50 pointer-events-none';
+            qualityIndicator.textContent = `${level.height}p`;
+            video.parentElement?.appendChild(qualityIndicator);
+            setTimeout(() => qualityIndicator.remove(), 2000);
+          }
         });
         
-        // Gestione errori migliorata
+        // Monitoraggio performance streaming
+        hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+          // Monitora performance caricamento frammenti per ottimizzazioni
+          const loadTime = data.stats.loading.end - data.stats.loading.start;
+          if (loadTime > 5000 && isMobile) { // Caricamento lento su mobile
+            console.warn(`HLS: Caricamento lento rilevato (${loadTime}ms), suggerisco qualità inferiore`);
+            // Forza livello più basso se disponibile
+            const currentLevel = hls.currentLevel;
+            if (currentLevel > 0) {
+              hls.nextLevel = currentLevel - 1;
+            }
+          }
+        });
+        
+        // Gestione errori potenziata per mobile
+        let networkErrorCount = 0;
+        let mediaErrorCount = 0;
+        
         hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error('HLS Error:', data.type, data.details, data);
+          
           if (data.fatal) {
             switch(data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                console.error('HLS fatal network error', data);
-                // Riprova automaticamente dopo errori di rete
-                hls.startLoad();
+                networkErrorCount++;
+                console.error(`HLS: Errore rete fatale #${networkErrorCount}`);
+                
+                if (networkErrorCount < 3) {
+                  // Tenta recovery con retry esponenziale
+                  const retryDelay = Math.pow(2, networkErrorCount) * 1000; // 2s, 4s, 8s
+                  console.info(`HLS: Riprovo in ${retryDelay}ms...`);
+                  
+                  if (isMobile) {
+                    // Mostra feedback visivo su mobile
+                    const errorHint = document.createElement('div');
+                    errorHint.className = 'absolute top-4 left-4 right-4 bg-red-600/90 text-white p-2 rounded-lg text-sm z-50';
+                    errorHint.innerHTML = `🔄 Connessione instabile, riprovo... (${networkErrorCount}/3)`;
+                    video.parentElement?.appendChild(errorHint);
+                    setTimeout(() => errorHint.remove(), retryDelay);
+                  }
+                  
+                  setTimeout(() => {
+                    hls.startLoad();
+                    setIsLoading(true);
+                  }, retryDelay);
+                } else {
+                  console.error('HLS: Troppi errori di rete, fallback necessario');
+                  if (isMobile) {
+                    // Suggerisci cambio qualità o ricaricamento
+                    const errorMessage = document.createElement('div');
+                    errorMessage.className = 'absolute inset-4 bg-red-600/95 text-white p-4 rounded-lg text-sm z-50 flex flex-col items-center justify-center';
+                    errorMessage.innerHTML = `
+                      <div class="text-center">
+                        <div class="text-2xl mb-2">⚠️</div>
+                        <div class="font-bold mb-2">Problema di connessione</div>
+                        <div class="mb-4">Impossibile caricare lo stream</div>
+                        <button onclick="location.reload()" class="bg-white text-red-600 px-4 py-2 rounded-lg font-bold">
+                          Ricarica pagina
+                        </button>
+                      </div>
+                    `;
+                    video.parentElement?.appendChild(errorMessage);
+                  }
+                }
                 break;
+                
               case Hls.ErrorTypes.MEDIA_ERROR:
-                console.error('HLS fatal media error', data);
-                // Riprova a recuperare da errori media
-                hls.recoverMediaError();
+                mediaErrorCount++;
+                console.error(`HLS: Errore media fatale #${mediaErrorCount}`);
+                
+                if (mediaErrorCount < 2) {
+                  console.info('HLS: Tentativo recovery errore media...');
+                  hls.recoverMediaError();
+                  
+                  if (isMobile) {
+                    const mediaHint = document.createElement('div');
+                    mediaHint.className = 'absolute top-4 left-4 right-4 bg-orange-600/90 text-white p-2 rounded-lg text-sm z-50';
+                    mediaHint.textContent = '🔧 Ripristino stream in corso...';
+                    video.parentElement?.appendChild(mediaHint);
+                    setTimeout(() => mediaHint.remove(), 3000);
+                  }
+                } else {
+                  console.error('HLS: Recovery media fallito');
+                  // Fallback: ricarica completamente
+                  if (channel.hlsSrc) {
+                    console.info('HLS: Ricarico stream da capo...');
+                    hls.destroy();
+                    hls.loadSource(channel.hlsSrc);
+                    hls.attachMedia(video);
+                  }
+                }
                 break;
+                
               default:
-                // Errore fatale non recuperabile
-                console.error('HLS fatal error:', data);
+                console.error('HLS: Errore fatale non recuperabile:', data.type, data.details);
+                if (isMobile) {
+                  const fatalError = document.createElement('div');
+                  fatalError.className = 'absolute inset-4 bg-red-600/95 text-white p-4 rounded-lg text-sm z-50 text-center';
+                  fatalError.innerHTML = `
+                    <div class="text-2xl mb-2">❌</div>
+                    <div class="font-bold mb-2">Errore di riproduzione</div>
+                    <div>Riprova più tardi</div>
+                  `;
+                  video.parentElement?.appendChild(fatalError);
+                }
                 break;
+            }
+          } else {
+            // Errori non fatali: log per debug
+            console.warn('HLS: Errore non fatale:', data.details);
+            
+            // Su connessioni molto lente, suggeriamo qualità minore
+            if (isSlowConnection && data.details.includes('BUFFER')) {
+              const lowestLevel = hls.levels.length - 1;
+              if (hls.currentLevel !== lowestLevel) {
+                console.info('HLS: Connessione lenta rilevata, imposto qualità minima');
+                hls.nextLevel = lowestLevel;
+              }
             }
           }
         });
@@ -1678,48 +2009,159 @@ function PlayerModal({ open, channel, onClose }) {
                 x5-video-orientation="landscape"
                 preload="auto"
                 poster={channel.thumbnail || ''}
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
                   const video = videoRef.current;
                   if (video) {
+                    // Feedback aptico su dispositivi supportati
+                    if (navigator.vibrate) {
+                      navigator.vibrate(10);
+                    }
+                    
                     // Non permettere pausa su stream HLS (sempre)
                     if (mode === "hls") {
-                      if (!isPlaying) video.play();
+                      if (!isPlaying) {
+                        video.play().catch(console.error);
+                      }
                     } else {
-                      if (isPlaying) video.pause();
-                      else video.play();
+                      if (isPlaying) {
+                        video.pause();
+                      } else {
+                        video.play().catch(console.error);
+                      }
                     }
                   }
                   resetControlsTimeout();
                 }}
                 onTouchStart={(e) => {
-                  // Feedback aptico su iOS per tocco video
-                  if (navigator.vibrate && isIOS) {
-                    navigator.vibrate(3); // Vibrazione sottile
+                  // Feedback aptico ottimizzato
+                  if (navigator.vibrate) {
+                    navigator.vibrate([5]); // Vibrazione sottile
                   }
                   
-                  // Migliora seekbar con gestures in fullscreen
-                  if (isFullscreen && !isIOS) {
-                    const touchX = e.touches[0].clientX;
-                    const width = e.currentTarget.clientWidth;
-                    // Rileva swipe laterali per seek rapido (solo in fullscreen)
-                    if (touchX < width * 0.3) { // 30% sinistro
-                      if (mode !== "hls" && duration > 0) {
-                        const video = videoRef.current;
-                        if (video) video.currentTime = Math.max(0, video.currentTime - 10);
-                        resetControlsTimeout();
-                      }
-                    } else if (touchX > width * 0.7) { // 30% destro
-                      if (mode !== "hls" && duration > 0) {
-                        const video = videoRef.current;
-                        if (video) video.currentTime = Math.min(duration, video.currentTime + 10);
-                        resetControlsTimeout();
-                      }
+                  // Sistema gesture avanzato per controlli touch
+                  const touch = e.touches[0];
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const touchX = touch.clientX - rect.left;
+                  const touchY = touch.clientY - rect.top;
+                  const width = rect.width;
+                  const height = rect.height;
+                  
+                  // Zone touch ottimizzate
+                  const leftZone = touchX < width * 0.25;  // 25% sinistro
+                  const rightZone = touchX > width * 0.75; // 25% destro
+                  const centerZone = !leftZone && !rightZone;
+                  const topHalf = touchY < height * 0.5;
+                  
+                  // Salva posizione iniziale per gesture
+                  this.touchStartX = touchX;
+                  this.touchStartY = touchY;
+                  this.touchStartTime = Date.now();
+                  
+                  // Mostra indicatori visivi per zone attive
+                  if (isFullscreen) {
+                    const showZoneIndicator = (zone, action) => {
+                      const indicator = document.createElement('div');
+                      indicator.className = `absolute ${zone} bg-white/20 rounded-lg p-2 text-white text-xs z-40 pointer-events-none`;
+                      indicator.textContent = action;
+                      e.currentTarget.appendChild(indicator);
+                      setTimeout(() => indicator.remove(), 1000);
+                    };
+                    
+                    if (leftZone && mode !== "hls") {
+                      showZoneIndicator('top-4 left-4', '⏪ -10s');
+                    } else if (rightZone && mode !== "hls") {
+                      showZoneIndicator('top-4 right-4', '+10s ⏩');
+                    } else if (centerZone) {
+                      showZoneIndicator('top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2', isPlaying ? '⏸️' : '▶️');
                     }
                   }
+                  
+                  resetControlsTimeout();
                 }}
                 onTouchEnd={(e) => {
-                  // Impedisce doppio clic indesiderato su touch
                   e.preventDefault();
+                  
+                  const touch = e.changedTouches[0];
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const touchEndX = touch.clientX - rect.left;
+                  const touchEndY = touch.clientY - rect.top;
+                  const touchDuration = Date.now() - (this.touchStartTime || 0);
+                  
+                  // Calcola swipe
+                  const deltaX = touchEndX - (this.touchStartX || 0);
+                  const deltaY = touchEndY - (this.touchStartY || 0);
+                  const swipeThreshold = 50;
+                  const maxSwipeTime = 500;
+                  
+                  const video = videoRef.current;
+                  if (!video) return;
+                  
+                  // Gestione swipe orizzontale per seek (solo per contenuti non-live)
+                  if (Math.abs(deltaX) > swipeThreshold && touchDuration < maxSwipeTime && mode !== "hls" && duration > 0) {
+                    const seekAmount = Math.min(30, Math.max(5, Math.abs(deltaX) / 10)); // 5-30 secondi basato su velocità swipe
+                    
+                    if (deltaX > 0) {
+                      // Swipe destro: avanti
+                      video.currentTime = Math.min(duration, video.currentTime + seekAmount);
+                      showSeekFeedback(`+${Math.round(seekAmount)}s`, e.currentTarget);
+                    } else {
+                      // Swipe sinistro: indietro
+                      video.currentTime = Math.max(0, video.currentTime - seekAmount);
+                      showSeekFeedback(`-${Math.round(seekAmount)}s`, e.currentTarget);
+                    }
+                    
+                    // Feedback aptico per swipe
+                    if (navigator.vibrate) {
+                      navigator.vibrate([10, 50, 10]);
+                    }
+                  }
+                  // Gestione swipe verticale per volume
+                  else if (Math.abs(deltaY) > swipeThreshold && touchDuration < maxSwipeTime) {
+                    const volumeChange = Math.min(0.3, Math.abs(deltaY) / 200); // Max 0.3 di variazione
+                    
+                    if (deltaY < 0) {
+                      // Swipe su: volume su
+                      const newVolume = Math.min(1, volume + volumeChange);
+                      setVolume(newVolume);
+                      video.volume = newVolume;
+                      if (isMuted) {
+                        setIsMuted(false);
+                        video.muted = false;
+                      }
+                      showVolumeFeedback(Math.round(newVolume * 100) + '%', e.currentTarget);
+                    } else {
+                      // Swipe giù: volume giù
+                      const newVolume = Math.max(0, volume - volumeChange);
+                      setVolume(newVolume);
+                      video.volume = newVolume;
+                      if (newVolume === 0) {
+                        setIsMuted(true);
+                        video.muted = true;
+                      }
+                      showVolumeFeedback(Math.round(newVolume * 100) + '%', e.currentTarget);
+                    }
+                    
+                    // Feedback aptico per volume
+                    if (navigator.vibrate) {
+                      navigator.vibrate([5, 30, 5]);
+                    }
+                  }
+                  // Tap singolo per play/pause (se non è uno swipe)
+                  else if (Math.abs(deltaX) < 20 && Math.abs(deltaY) < 20 && touchDuration < 300) {
+                    if (mode === "hls") {
+                      if (!isPlaying) video.play().catch(console.error);
+                    } else {
+                      if (isPlaying) video.pause();
+                      else video.play().catch(console.error);
+                    }
+                  }
+                  
+                  // Pulizia
+                  delete this.touchStartX;
+                  delete this.touchStartY;
+                  delete this.touchStartTime;
+                  
                   resetControlsTimeout();
                 }}
                 // Previeni zoom durante doppio tap su iOS/iPadOS

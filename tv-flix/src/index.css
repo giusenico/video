@@ -573,6 +573,53 @@ input, textarea, [contenteditable] {
   user-select: auto;
 }
 
+/* Mobile player optimizations */
+@media (max-width: 768px) {
+  /* Improve video performance on mobile */
+  video {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    will-change: transform;
+  }
+  
+  /* Optimize touch targets in player */
+  .player-control {
+    min-width: 48px !important;
+    min-height: 48px !important;
+    padding: 12px !important;
+  }
+  
+  /* Better fullscreen experience */
+  .ios-fullscreen video {
+    -webkit-transform: translate3d(0,0,0);
+    transform: translate3d(0,0,0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+  
+  /* Hide system UI in landscape fullscreen */
+  @media (orientation: landscape) {
+    .ios-fullscreen {
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+    }
+    
+    /* Hide status bar area */
+    .ios-fullscreen::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: env(safe-area-inset-top, 20px);
+      background: #000;
+      z-index: 1;
+    }
+  }
+}
+
 /* Prevent iOS Safari from adding rounded corners and shadows to inputs */
 input, textarea, select, button {
   -webkit-appearance: none;
