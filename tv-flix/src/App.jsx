@@ -556,17 +556,66 @@ const CHANNELS = [
   }
 ];
 
-// Caricamento dinamico di hls.js da CDN quando serve
+// Caricamento dinamico di hls.js da CDN quando serve - ottimizzato per velocità
 async function ensureHls() {
   if ("Hls" in window) return window.Hls;
-  await new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
-    s.async = true;
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
+  
+  // Precarica hls.js se il dispositivo non è a bassa potenza
+  if (navigator.connection && !navigator.connection.saveData && 
+      (!('deviceMemory' in navigator) || navigator.deviceMemory > 2)) {
+    // Usa DNS preconnect per velocizzare caricamento CDN
+    const linkPreconnect = document.createElement('link');
+    linkPreconnect.rel = 'preconnect';
+    linkPreconnect.href = 'https://cdn.jsdelivr.net';
+    linkPreconnect.crossOrigin = 'anonymous';
+    document.head.appendChild(linkPreconnect);
+  
+    // Preload per la libreria stessa
+    const linkPreload = document.createElement('link');
+    linkPreload.rel = 'preload';
+    linkPreload.href = 'https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js'; // Versione specifica per cache più efficiente
+    linkPreload.as = 'script';
+    linkPreload.crossOrigin = 'anonymous';
+    document.head.appendChild(linkPreload);
+  }
+  
+  // Caricamento script con retry automatico
+  let retries = 0;
+  const maxRetries = 3;
+  
+  while (retries < maxRetries) {
+    try {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        // Specifichiamo versione esatta per sicurezza e velocità
+        s.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js";
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = () => {
+          retries++;
+          if (retries < maxRetries) {
+            console.warn(`Riprovo caricamento hls.js (tentativo ${retries+1}/${maxRetries})`);
+            setTimeout(reject, 500 * Math.pow(2, retries)); // Exponential backoff
+          } else {
+            reject(new Error('Impossibile caricare hls.js dopo diversi tentativi'));
+          }
+        };
+        document.head.appendChild(s);
+      });
+      
+      // Caricamento riuscito
+      console.info('HLS.js caricato con successo');
+      return window.Hls;
+    } catch (e) {
+      if (retries >= maxRetries) {
+        console.error('Errore fatale nel caricamento di hls.js:', e);
+        throw e;
+      }
+      // Altrimenti riprova nel loop
+      retries++;
+    }
+  }
+  
   return window.Hls;
 }
 
@@ -664,6 +713,14 @@ function ChannelCard({ channel, onOpen }) {
   const [isHovered, setIsHovered] = useState(false);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const videoRef = useRef(null);
+  
+  // Rileva dispositivi iOS per integrazioni native
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    setIsIOS(/iPad|iPhone|iPod/.test(ua) && !window.MSStream);
+  }, []);
 
   // Get fallback images from the image constants
   const fallbackThumbnail = (() => {
@@ -681,6 +738,19 @@ function ChannelCard({ channel, onOpen }) {
 
   const currentThumbnail = thumbnailError ? fallbackThumbnail : channel.thumbnail;
   const currentLogo = logoError ? fallbackThumbnail : channel.logo;
+  
+  // Gestione click specifica per iOS
+  const handleClick = () => {
+    // Su iOS con HLS disponibile, offri l'opzione di usare il player nativo
+    if (isIOS && channel.hlsSrc) {
+      // Apre direttamente il player nativo iOS
+      window.location.href = channel.hlsSrc;
+      return;
+    }
+    
+    // Comportamento predefinito per altri dispositivi
+    onOpen(channel);
+  };
 
   return (
     <div className="relative flex-shrink-0 w-44 xs:w-52 sm:w-60 md:w-72 lg:w-80 group">
@@ -691,7 +761,7 @@ function ChannelCard({ channel, onOpen }) {
           hover:scale-105 active:scale-95 hover:z-30
           touch-manipulation
         "
-        onClick={() => onOpen(channel)}
+        onClick={handleClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         onTouchStart={() => setIsHovered(true)}
@@ -804,10 +874,14 @@ function PlayerModal({ open, channel, onClose }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isPip, setIsPip] = useState(false);
   const [isLiveStream, setIsLiveStream] = useState(false);
+  const [networkQuality, setNetworkQuality] = useState('unknown'); // 'slow', 'medium', 'fast', 'unknown'
+  const [adaptiveQuality, setAdaptiveQuality] = useState(true); // Qualità adattiva abilitata di default
   
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
+  const networkCheckRef = useRef(null);
+  const hlsInstanceRef = useRef(null); // Riferimento all'istanza HLS per controllo livelli
   const isSafari = useIsSafari();
   const [airplayAvailable, setAirplayAvailable] = useState(false);
 
@@ -818,6 +892,115 @@ function PlayerModal({ open, channel, onClose }) {
     const ua = navigator.userAgent;
     setIsIOS(/iPad|iPhone|iPod/.test(ua) && !window.MSStream);
   }, []);
+  
+  // Rilevamento qualità della rete per adattare lo streaming
+  useEffect(() => {
+    if (!open) return;
+    
+    // Usa l'API Network Information quando disponibile
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    
+    const checkNetworkQuality = () => {
+      // Metodo 1: Usa Network Information API se disponibile
+      if (connection) {
+        const { effectiveType, downlink, rtt } = connection;
+        
+        // Determina qualità basata su tipo connessione
+        if (effectiveType === '4g' && downlink > 5) {
+          setNetworkQuality('fast');
+        } else if ((effectiveType === '4g' && downlink <= 5) || 
+                   (effectiveType === '3g' && downlink > 1.5)) {
+          setNetworkQuality('medium');
+        } else {
+          setNetworkQuality('slow');
+        }
+        
+        console.info(`Qualità rete: ${effectiveType}, ${downlink}Mbps, RTT ${rtt}ms`);
+      } 
+      // Metodo 2: Testa velocità download di un piccolo file test
+      else {
+        const startTime = Date.now();
+        const testUrl = 'https://cdn.jsdelivr.net/gh/interactiveJS/cdn-test@master/10kb.jpg';
+        
+        fetch(testUrl + '?nocache=' + Math.random(), { method: 'HEAD' })
+          .then(() => {
+            const duration = Date.now() - startTime;
+            // 10KB test: <100ms=veloce, 100-500ms=media, >500ms=lenta
+            if (duration < 100) {
+              setNetworkQuality('fast');
+            } else if (duration < 500) {
+              setNetworkQuality('medium');
+            } else {
+              setNetworkQuality('slow');
+            }
+            console.info(`Test velocità rete: ${duration}ms`);
+          })
+          .catch(() => {
+            console.warn('Test velocità rete fallito, presumo connessione lenta');
+            setNetworkQuality('slow');
+          });
+      }
+    };
+    
+    // Controlla la qualità della rete all'apertura del player
+    checkNetworkQuality();
+    
+    // Monitora cambiamenti nella connessione quando possibile
+    if (connection) {
+      connection.addEventListener('change', checkNetworkQuality);
+    }
+    
+    // Controlla periodicamente la connessione
+    networkCheckRef.current = setInterval(checkNetworkQuality, 30000); // Ogni 30 secondi
+    
+    return () => {
+      if (connection) {
+        connection.removeEventListener('change', checkNetworkQuality);
+      }
+      if (networkCheckRef.current) {
+        clearInterval(networkCheckRef.current);
+      }
+    };
+  }, [open]);
+  
+  // Applica impostazioni basate sulla qualità della rete
+  useEffect(() => {
+    // Non fare nulla se non c'è un player o se non siamo in modalità HLS
+    if (!hlsInstanceRef.current || mode !== 'hls' || !adaptiveQuality) return;
+    
+    const hls = hlsInstanceRef.current;
+    
+    // Adatta la qualità in base alla rete rilevata
+    switch(networkQuality) {
+      case 'slow':
+        // Imposta un livello di qualità più basso per reti lente
+        if (hls.levels && hls.levels.length > 1) {
+          console.info('Rete lenta: imposto livello di qualità più basso');
+          // Trova il livello con il bitrate più basso
+          const lowestLevel = hls.levels.reduce((prev, curr, idx) => 
+            curr.bitrate < hls.levels[prev].bitrate ? idx : prev, 0);
+          hls.nextLevel = lowestLevel;
+        }
+        break;
+        
+      case 'medium':
+        // Usa un livello medio per reti di media velocità
+        if (hls.levels && hls.levels.length > 2) {
+          console.info('Rete media: imposto livello di qualità medio');
+          // Imposta un livello intermedio
+          const midLevel = Math.floor(hls.levels.length / 2);
+          hls.nextLevel = midLevel;
+        }
+        break;
+        
+      case 'fast':
+      default:
+        // Per reti veloci usa la qualità automatica
+        console.info('Rete veloce: qualità automatica');
+        hls.nextLevel = -1; // Automatica
+        break;
+    }
+  }, [networkQuality, mode, adaptiveQuality]);
   
   // Gestione avanzata dell'orientamento su mobile
   useEffect(() => {
@@ -1180,16 +1363,39 @@ function PlayerModal({ open, channel, onClose }) {
     const video = videoRef.current;
     if (!video) return;
 
-    // Configura video
+    // Configura video con ottimizzazioni mobile
     video.setAttribute("x-webkit-airplay", "allow");
     video.setAttribute("playsinline", "true");
+    video.setAttribute("webkit-playsinline", "true");
+    video.setAttribute("x5-playsinline", "true"); // Per browser cinesi (QQ, UC, ecc)
+    video.setAttribute("x5-video-player-type", "h5-page");
+    video.setAttribute("x5-video-orientation", "landscape");
+    video.setAttribute("preload", "auto"); // Precarica i metadati e alcuni dati
+    video.setAttribute("autoplay", "true"); // Tentativo di autoplay
+    
+    // Ottimizzazioni per touch con feedback aptico quando disponibile
+    if (navigator.vibrate && isIOS) {
+      video.addEventListener('touchstart', () => navigator.vibrate(5));
+    }
 
     const cleanup = handleVideoEvents(video);
 
-    // Safari supporta nativamente HLS
-    if (isSafari) {
+    // Safari e iOS supportano nativamente HLS
+    if (isSafari || isIOS) {
       video.src = channel.hlsSrc;
-      const onCanPlay = () => setAirplayAvailable(!!video.webkitShowPlaybackTargetPicker);
+      const onCanPlay = () => {
+        setAirplayAvailable(!!video.webkitShowPlaybackTargetPicker);
+        setIsLoading(false);
+        // Auto-play con tentativi multipli su mobile
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            console.info('Autoplay impedito dal browser, richiederemo interazione utente:', error);
+            setIsPlaying(false);
+            setShowControls(true); // Mostra controlli per interazione utente
+          });
+        }
+      };
       video.addEventListener("canplay", onCanPlay);
       return () => {
         cleanup();
@@ -1197,7 +1403,7 @@ function PlayerModal({ open, channel, onClose }) {
       };
     }
 
-    // Altri browser: usa hls.js
+    // Altri browser: usa hls.js con ottimizzazioni per mobile
     let hls;
     let destroyed = false;
     (async () => {
@@ -1206,20 +1412,81 @@ function PlayerModal({ open, channel, onClose }) {
       if (Hls.isSupported()) {
         hls = new Hls({ 
           enableWorker: true,
-          startLevel: -1, // Auto quality
+          startLevel: -1, // Auto quality per iniziare
           capLevelToPlayerSize: true,
+          // Ottimizzazioni per mobile
+          abrEwmaDefaultEstimate: 500000, // Partire con stima 500kbps per device mobili
+          abrBandWidthFactor: 0.8, // Più conservativo su mobile (80% della banda)
+          abrBandWidthUpFactor: 0.7, // Aumenta qualità più lentamente
+          maxBufferLength: 30, // Buffer più lungo per connessioni instabili
+          maxMaxBufferLength: 60, 
+          testBandwidth: true,
+          lowLatencyMode: true, // Riduce latenza per streaming live
+          fragLoadingMaxRetry: 4, // Più tentativi su reti mobili instabili
+          manifestLoadingMaxRetry: 4,
+          levelLoadingMaxRetry: 4,
+          progressive: true, // Streaming progressivo per startup più veloce
+          backBufferLength: 30 // Mantieni buffer indietro per connessioni instabili
         });
+        hlsInstanceRef.current = hls; // Salviamo il riferimento per controlli esterni
         hls.loadSource(channel.hlsSrc);
         hls.attachMedia(video);
+        
+        // Event listeners ottimizzati
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           setAirplayAvailable(false);
-          video.play().catch(() => {});
+          
+          // Tenta play automatico
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(error => {
+              console.info('Autoplay impedito dal browser:', error);
+              setIsPlaying(false);
+              setShowControls(true);
+            });
+          }
+          
+          // Nascondi loading quando streaming è pronto
+          setIsLoading(false);
         });
+        
+        // Gestione livelli di qualità
         hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
-          // Gestione cambio qualità
+          console.info(`HLS: Cambio qualità a livello ${data.level}`); 
+          // Il livello più basso è generalmente più veloce a caricare
         });
+        
+        // Gestione errori migliorata
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            switch(data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.error('HLS fatal network error', data);
+                // Riprova automaticamente dopo errori di rete
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.error('HLS fatal media error', data);
+                // Riprova a recuperare da errori media
+                hls.recoverMediaError();
+                break;
+              default:
+                // Errore fatale non recuperabile
+                console.error('HLS fatal error:', data);
+                break;
+            }
+          }
+        });
+        
+        // Monitora i buffer per una migliore esperienza utente
+        hls.on(Hls.Events.BUFFER_CREATED, () => {
+          setIsLoading(false);
+        });
+        
       } else {
+        // Fallback per browser non supportati
         video.src = channel.hlsSrc;
+        video.load(); // Forza caricamento per una risposta più veloce
       }
     })();
 
@@ -1228,9 +1495,10 @@ function PlayerModal({ open, channel, onClose }) {
       cleanup();
       if (hls) {
         hls.destroy();
+        hlsInstanceRef.current = null;
       }
     };
-  }, [open, channel, mode, isSafari]);
+  }, [open, channel, mode, isSafari, isIOS]);
 
   // Gestisce separatamente i cambiamenti di volume
   useEffect(() => {
@@ -1408,6 +1676,8 @@ function PlayerModal({ open, channel, onClose }) {
                 x5-video-player-type="h5-page"
                 x5-video-player-fullscreen="true"
                 x5-video-orientation="landscape"
+                preload="auto"
+                poster={channel.thumbnail || ''}
                 onClick={() => {
                   const video = videoRef.current;
                   if (video) {
@@ -1421,10 +1691,42 @@ function PlayerModal({ open, channel, onClose }) {
                   }
                   resetControlsTimeout();
                 }}
+                onTouchStart={(e) => {
+                  // Feedback aptico su iOS per tocco video
+                  if (navigator.vibrate && isIOS) {
+                    navigator.vibrate(3); // Vibrazione sottile
+                  }
+                  
+                  // Migliora seekbar con gestures in fullscreen
+                  if (isFullscreen && !isIOS) {
+                    const touchX = e.touches[0].clientX;
+                    const width = e.currentTarget.clientWidth;
+                    // Rileva swipe laterali per seek rapido (solo in fullscreen)
+                    if (touchX < width * 0.3) { // 30% sinistro
+                      if (mode !== "hls" && duration > 0) {
+                        const video = videoRef.current;
+                        if (video) video.currentTime = Math.max(0, video.currentTime - 10);
+                        resetControlsTimeout();
+                      }
+                    } else if (touchX > width * 0.7) { // 30% destro
+                      if (mode !== "hls" && duration > 0) {
+                        const video = videoRef.current;
+                        if (video) video.currentTime = Math.min(duration, video.currentTime + 10);
+                        resetControlsTimeout();
+                      }
+                    }
+                  }
+                }}
                 onTouchEnd={(e) => {
                   // Impedisce doppio clic indesiderato su touch
                   e.preventDefault();
                   resetControlsTimeout();
+                }}
+                // Previeni zoom durante doppio tap su iOS/iPadOS
+                onTouchMove={(e) => {
+                  if (e.touches.length > 1) {
+                    e.preventDefault(); // Previeni pinch zoom nel player
+                  }
                 }}
               />
 
@@ -1466,13 +1768,50 @@ function PlayerModal({ open, channel, onClose }) {
                   </div>
                 )}
                 
-                {/* HLS Streaming Indicator */}
+                {/* HLS Streaming Indicator con stato rete */}
                 {mode === "hls" && (
-                  <div className="px-6 pb-2 flex items-center justify-center">
+                  <div className="px-6 pb-2 flex items-center justify-center flex-wrap gap-2">
                     <div className="flex items-center gap-2 bg-blue-600 px-4 py-1 rounded-full">
                       <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                      <span className="text-white text-sm font-bold">� HLS STREAMING</span>
+                      <span className="text-white text-sm font-bold">STREAMING HLS</span>
                     </div>
+                    
+                    {/* Indicatore qualità rete */}
+                    {networkQuality !== 'unknown' && (
+                      <div className={`
+                        flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium
+                        ${networkQuality === 'fast' ? 'bg-green-600' : 
+                          networkQuality === 'medium' ? 'bg-yellow-600' : 'bg-red-600'}
+                      `}>
+                        <div className={`
+                          w-1.5 h-1.5 rounded-full 
+                          ${networkQuality === 'fast' ? 'bg-green-300 animate-pulse' : 
+                            networkQuality === 'medium' ? 'bg-yellow-300 animate-pulse' : 'bg-red-300 animate-pulse'}
+                        `}></div>
+                        <span className="hidden xs:inline">{
+                          networkQuality === 'fast' ? 'Rete Veloce' :
+                          networkQuality === 'medium' ? 'Rete Media' : 'Rete Lenta'
+                        }</span>
+                        <span className="xs:hidden">{
+                          networkQuality === 'fast' ? '⚡' :
+                          networkQuality === 'medium' ? '🔄' : '🐢'
+                        }</span>
+                      </div>
+                    )}
+                    
+                    {/* Indicatore qualità streaming */}
+                    <button 
+                      onClick={() => setAdaptiveQuality(!adaptiveQuality)}
+                      className={`
+                        flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium
+                        ${adaptiveQuality ? 'bg-purple-600' : 'bg-gray-600'}
+                        hover:bg-opacity-80 active:bg-opacity-70 transition-colors
+                        min-h-[24px] min-w-[24px] touch-manipulation
+                      `}
+                    >
+                      <span>{adaptiveQuality ? '🔄' : '⚙️'}</span>
+                      <span className="hidden xs:inline">{adaptiveQuality ? 'Auto' : 'Manuale'}</span>
+                    </button>
                   </div>
                 )}
 
