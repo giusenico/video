@@ -811,35 +811,146 @@ function PlayerModal({ open, channel, onClose }) {
   const isSafari = useIsSafari();
   const [airplayAvailable, setAirplayAvailable] = useState(false);
 
-  // Gestione orientamento su mobile
+  // Rilevamento del sistema operativo per ottimizzazioni specifiche
+  const [isIOS, setIsIOS] = useState(false);
+  
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    setIsIOS(/iPad|iPhone|iPod/.test(ua) && !window.MSStream);
+  }, []);
+  
+  // Gestione avanzata dell'orientamento su mobile
   useEffect(() => {
     if (!open) return;
     
+    const lockBody = () => {
+      document.body.style.overflow = 'hidden';
+      // Fix per iOS Safari per impedire lo scroll della pagina
+      if (isIOS) {
+        document.body.style.position = 'fixed';
+        document.body.style.width = '100%';
+        document.body.style.top = `-${window.scrollY}px`;
+      }
+    };
+    
+    const unlockBody = () => {
+      document.body.style.overflow = '';
+      // Ripristino posizione per iOS
+      if (isIOS) {
+        const scrollY = document.body.style.top;
+        document.body.style.position = '';
+        document.body.style.width = '';
+        document.body.style.top = '';
+        window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      }
+    };
+    
     const handleOrientationChange = () => {
-      if (window.screen && window.screen.orientation) {
-        const orientation = window.screen.orientation.angle;
-        if (isFullscreen && (orientation === 90 || orientation === -90)) {
-          // Landscape in fullscreen
-          document.body.style.overflow = 'hidden';
-        } else {
-          document.body.style.overflow = '';
+      const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+      if (isFullscreen && isLandscape) {
+        lockBody();
+        // Forza ridimensionamento sui dispositivi iOS per riempire lo schermo
+        if (isIOS && containerRef.current) {
+          containerRef.current.style.height = `${window.innerHeight}px`;
+          containerRef.current.style.width = `${window.innerWidth}px`;
+        }
+      } else {
+        unlockBody();
+        // Ripristina dimensioni normali
+        if (isIOS && containerRef.current) {
+          containerRef.current.style.height = '';
+          containerRef.current.style.width = '';
         }
       }
     };
 
+    // Aggiungi listener per cambiamenti di orientamento e resize
     window.addEventListener('orientationchange', handleOrientationChange);
+    window.addEventListener('resize', handleOrientationChange);
+    
+    // Esegui immediatamente per impostare lo stato corretto
+    handleOrientationChange();
+    
     return () => {
       window.removeEventListener('orientationchange', handleOrientationChange);
-      document.body.style.overflow = '';
+      window.removeEventListener('resize', handleOrientationChange);
+      unlockBody();
     };
-  }, [open, isFullscreen]);
+  }, [open, isFullscreen, isIOS]);
 
-  // Gestione fullscreen
+  // Gestione fullscreen avanzata con supporto mobile
   const toggleFullscreen = async () => {
     const container = containerRef.current;
+    const video = videoRef.current;
     if (!container) return;
-
+    
     try {
+      // Rileva se è possibile il fullscreen nativo
+      const canUseNativeFullscreen = !!(
+        document.fullscreenEnabled ||
+        document.webkitFullscreenEnabled ||
+        document.mozFullScreenEnabled ||
+        document.msFullscreenEnabled
+      );
+      
+      // Soluzione specifica per iOS dove il fullscreen API non è completamente supportato
+      if (isIOS && video) {
+        if (!isFullscreen) {
+          // Su iOS, imposta manualmente lo stato fullscreen e ruota in landscape
+          setIsFullscreen(true);
+          // iOS richiede che il video sia in fullscreen e playsinline sia impostato
+          video.playsInline = false;
+          if (typeof video.webkitEnterFullscreen === 'function') {
+            await video.webkitEnterFullscreen();
+          } else {
+            // Fallback: simula fullscreen su iOS
+            container.style.position = 'fixed';
+            container.style.top = '0';
+            container.style.left = '0';
+            container.style.width = '100vw';
+            container.style.height = '100vh';
+            container.style.zIndex = '10000';
+            container.style.backgroundColor = 'black';
+            container.style.transform = 'translateZ(0)';
+          }
+          // Forza l'orientamento landscape su iOS dove possibile
+          if (typeof window.screen?.orientation?.lock === 'function') {
+            try {
+              await window.screen.orientation.lock('landscape');
+            } catch (e) {
+              // Orientamento manuale non supportato, ignora
+            }
+          }
+        } else {
+          // Esci da fullscreen per iOS
+          setIsFullscreen(false);
+          video.playsInline = true;
+          if (typeof video.webkitExitFullscreen === 'function') {
+            await video.webkitExitFullscreen();
+          } else {
+            // Rimuovi lo stile fullscreen simulato
+            container.style.position = '';
+            container.style.top = '';
+            container.style.left = '';
+            container.style.width = '';
+            container.style.height = '';
+            container.style.zIndex = '';
+            container.style.backgroundColor = '';
+            container.style.transform = '';
+          }
+          // Sblocca l'orientamento su iOS
+          if (typeof window.screen?.orientation?.unlock === 'function') {
+            try {
+              window.screen.orientation.unlock();
+            } catch (e) {
+              // Unlock non supportato, ignora
+            }
+          }
+        }
+        return;
+      }
+      
+      // Comportamento standard per browser desktop e Android
       if (!isFullscreen) {
         // Entra in fullscreen
         if (container.requestFullscreen) {
@@ -850,6 +961,16 @@ function PlayerModal({ open, channel, onClose }) {
           await container.mozRequestFullScreen();
         } else if (container.msRequestFullscreen) {
           await container.msRequestFullscreen();
+        } else {
+          // Fallback se l'API fullscreen non è supportata
+          setIsFullscreen(true);
+          document.body.style.overflow = 'hidden';
+          container.style.position = 'fixed';
+          container.style.top = '0';
+          container.style.left = '0';
+          container.style.width = '100vw';
+          container.style.height = '100vh';
+          container.style.zIndex = '10000';
         }
       } else {
         // Esci da fullscreen
@@ -861,14 +982,26 @@ function PlayerModal({ open, channel, onClose }) {
           await document.mozCancelFullScreen();
         } else if (document.msExitFullscreen) {
           await document.msExitFullscreen();
+        } else {
+          // Fallback per l'uscita da fullscreen simulato
+          setIsFullscreen(false);
+          document.body.style.overflow = '';
+          container.style.position = '';
+          container.style.top = '';
+          container.style.left = '';
+          container.style.width = '';
+          container.style.height = '';
+          container.style.zIndex = '';
         }
       }
     } catch (error) {
       console.warn('Errore fullscreen:', error);
+      // Fallback se il metodo standard fallisce
+      setIsFullscreen(!isFullscreen);
     }
   };
 
-  // Monitor fullscreen state
+  // Monitor fullscreen state con supporto avanzato per mobile
   useEffect(() => {
     const handleFullscreenChange = () => {
       const isCurrentlyFullscreen = !!(document.fullscreenElement || 
@@ -876,20 +1009,77 @@ function PlayerModal({ open, channel, onClose }) {
         document.mozFullScreenElement || 
         document.msFullscreenElement);
       setIsFullscreen(isCurrentlyFullscreen);
+      
+      // Aggiorna classe CSS sul body per prevenire scroll
+      if (isCurrentlyFullscreen) {
+        document.body.classList.add('fullscreen-active');
+        // Su iOS, assicurati che il video occupi tutto lo schermo
+        if (isIOS && containerRef.current) {
+          containerRef.current.style.width = `${window.innerWidth}px`;
+          containerRef.current.style.height = `${window.innerHeight}px`;
+        }
+      } else {
+        document.body.classList.remove('fullscreen-active');
+        // Ripristina le dimensioni normali quando si esce dal fullscreen
+        if (isIOS && containerRef.current) {
+          containerRef.current.style.width = '';
+          containerRef.current.style.height = '';
+        }
+      }
+      
+      // Forza orientamento landscape su dispositivi mobili quando possibile
+      if (isCurrentlyFullscreen && typeof window.screen?.orientation?.lock === 'function') {
+        try {
+          window.screen.orientation.lock('landscape').catch(() => {});
+        } catch (e) {
+          // Ignora errori, non tutti i browser supportano il lock
+        }
+      }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
     document.addEventListener('msfullscreenchange', handleFullscreenChange);
+    
+    // Gestione manuale per iOS quando l'API fullscreen non è disponibile
+    const handleIosOrientationChange = () => {
+      if (isIOS && isFullscreen) {
+        const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+        if (containerRef.current) {
+          if (isLandscape) {
+            containerRef.current.classList.add('ios-fullscreen');
+          } else {
+            // Permetti all'utente di uscire dal fullscreen ruotando in portrait
+            containerRef.current.classList.remove('ios-fullscreen');
+            if (isFullscreen) toggleFullscreen().catch(() => {});
+          }
+        }
+      }
+    };
+    
+    window.addEventListener('orientationchange', handleIosOrientationChange);
+    window.addEventListener('resize', handleIosOrientationChange);
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+      window.removeEventListener('orientationchange', handleIosOrientationChange);
+      window.removeEventListener('resize', handleIosOrientationChange);
+      document.body.classList.remove('fullscreen-active');
+      
+      // Sblocca l'orientamento quando si esce
+      if (typeof window.screen?.orientation?.unlock === 'function') {
+        try {
+          window.screen.orientation.unlock();
+        } catch (e) {
+          // Ignora errori
+        }
+      }
     };
-  }, []);
+  }, [isFullscreen, isIOS, toggleFullscreen]);  // Dipendenza da toggleFullscreen controllata
 
   // Auto-hide controlli
   const resetControlsTimeout = () => {
@@ -1121,17 +1311,20 @@ function PlayerModal({ open, channel, onClose }) {
         ref={containerRef}
         className={`
           ${isFullscreen 
-            ? 'w-full h-full' 
+            ? 'w-full h-full fixed inset-0 z-[9999]' 
             : 'w-[min(1200px,96vw)] h-[min(80vh,90vh)] mx-2 sm:mx-4'
           } 
           rounded-xl sm:rounded-2xl bg-neutral-950 ring-1 ring-white/10 shadow-video overflow-hidden 
           flex flex-col transform-gpu transition-all duration-300 animate-scale-in
           ${isFullscreen ? 'rounded-none' : ''}
           safe-area-inset
+          ${isIOS && isFullscreen ? 'ios-fullscreen' : ''}
         `}
         onMouseMove={resetControlsTimeout}
         onMouseLeave={() => isPlaying && setShowControls(false)}
         onTouchStart={resetControlsTimeout}
+        onTouchEnd={() => setTimeout(() => isPlaying && setShowControls(false), 3000)}
+        onDoubleClick={toggleFullscreen}
       >
         {/* Header - nascosto in fullscreen */}
         {!isFullscreen && (
@@ -1203,12 +1396,18 @@ function PlayerModal({ open, channel, onClose }) {
             />
           ) : (
             <>
-              {/* Video Element */}
+              {/* Video Element con supporto avanzato per touch */}
               <video
                 ref={videoRef}
-                className="w-full h-full object-contain bg-black"
+                className="w-full h-full object-contain bg-black touch-manipulation"
                 playsInline
+                controls={false}
                 x-webkit-airplay="allow"
+                webkit-playsinline="true"
+                x5-playsinline="true"
+                x5-video-player-type="h5-page"
+                x5-video-player-fullscreen="true"
+                x5-video-orientation="landscape"
                 onClick={() => {
                   const video = videoRef.current;
                   if (video) {
@@ -1220,6 +1419,12 @@ function PlayerModal({ open, channel, onClose }) {
                       else video.play();
                     }
                   }
+                  resetControlsTimeout();
+                }}
+                onTouchEnd={(e) => {
+                  // Impedisce doppio clic indesiderato su touch
+                  e.preventDefault();
+                  resetControlsTimeout();
                 }}
               />
 
