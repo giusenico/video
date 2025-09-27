@@ -1925,6 +1925,31 @@ function PlayerModal({ open, channel, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm animate-fade-in">
+      {/* CSS per migliorare i controlli touch */}
+      <style>{`
+        .touch-control {
+          -webkit-touch-callout: none;
+          -webkit-user-select: none;
+          -khtml-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+          user-select: none;
+          touch-action: manipulation;
+        }
+        
+        .touch-control:active {
+          transform: scale(0.95);
+          transition: transform 0.1s ease;
+        }
+        
+        /* Migliora la responsività su iOS */
+        @supports (-webkit-touch-callout: none) {
+          .touch-control {
+            -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+          }
+        }
+      `}</style>
+      
       <div 
         ref={containerRef}
         className={`
@@ -2010,14 +2035,53 @@ function PlayerModal({ open, channel, onClose }) {
         {/* Player Area */}
         <div className="relative flex-1 bg-black overflow-hidden">
           {mode === "iframe" || !channel.hlsSrc ? (
-            <iframe
-              src={channel.iframeSrc}
-              title={channel.name}
-              className="w-full h-full border-0"
-              allow="autoplay; fullscreen; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="no-referrer"
-            />
+            <>
+              <iframe
+                src={channel.iframeSrc}
+                title={channel.name}
+                className="w-full h-full border-0 bg-black"
+                sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen"
+                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                allowFullScreen
+                referrerPolicy="no-referrer"
+                loading="lazy"
+                onLoad={() => {
+                  // Nasconde eventuali overlay pubblicitari dopo il caricamento
+                  setIsLoading(false);
+                }}
+              />
+              
+              {/* Overlay Anti-Pubblicità per iframe */}
+              <div 
+                className="absolute inset-0 pointer-events-none z-10"
+                style={{
+                  background: 'transparent'
+                }}
+              >
+                {/* Blocca overlay pubblicitari negli angoli */}
+                <div className="absolute top-0 right-0 w-32 h-32 pointer-events-auto bg-transparent" 
+                     onClick={(e) => e.preventDefault()}></div>
+                <div className="absolute top-0 left-0 w-32 h-32 pointer-events-auto bg-transparent" 
+                     onClick={(e) => e.preventDefault()}></div>
+                <div className="absolute bottom-0 right-0 w-32 h-32 pointer-events-auto bg-transparent" 
+                     onClick={(e) => e.preventDefault()}></div>
+                <div className="absolute bottom-0 left-0 w-32 h-32 pointer-events-auto bg-transparent" 
+                     onClick={(e) => e.preventDefault()}></div>
+              </div>
+
+              {/* Indicatore modalità iframe con suggerimenti */}
+              {showControls && (
+                <div className="absolute top-4 left-4 bg-purple-600/90 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-sm z-40">
+                  <div className="flex items-center gap-2">
+                    <span>🖥️</span>
+                    <span className="font-bold">IFRAME</span>
+                  </div>
+                  <div className="text-xs opacity-80 mt-1">
+                    Player esterno - Usa i controlli del sito
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <>
               {/* Video Element con supporto avanzato per touch */}
@@ -2210,8 +2274,9 @@ function PlayerModal({ open, channel, onClose }) {
               {/* Custom Video Controls */}
               <div className={`
                 absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent 
-                transition-all duration-300 transform
+                transition-all duration-300 transform z-50
                 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}
+                pointer-events-auto
               `}>
                 {/* Progress Bar - nascosta per stream HLS */}
                 {mode !== "hls" && (
@@ -2305,13 +2370,19 @@ function PlayerModal({ open, channel, onClose }) {
                 </div>
 
                 {/* Control Buttons */}
-                <div className="flex items-center justify-between px-3 xs:px-4 sm:px-6 pb-3 sm:pb-4">
+                <div className="flex items-center justify-between px-3 xs:px-4 sm:px-6 pb-3 sm:pb-4 relative z-50">
                   <div className="flex items-center gap-2 xs:gap-3 sm:gap-4">
                     {/* Play/Pause - disabilitato per stream HLS */}
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         const video = videoRef.current;
                         if (video) {
+                          // Feedback aptico
+                          if (navigator.vibrate && !(mode === "hls" && isPlaying)) {
+                            navigator.vibrate(15);
+                          }
                           // Non permettere pausa su stream HLS (sempre)
                           if (mode === "hls") {
                             if (!isPlaying) video.play();
@@ -2322,37 +2393,69 @@ function PlayerModal({ open, channel, onClose }) {
                         }
                       }}
                       className={`
-                        w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 flex items-center justify-center rounded-full 
+                        w-12 h-12 xs:w-14 xs:h-14 sm:w-16 sm:h-16 
+                        flex items-center justify-center rounded-full 
                         ${mode === "hls" && isPlaying 
-                          ? 'bg-gray-600 cursor-not-allowed' 
-                          : 'bg-primary-600 hover:bg-primary-500 active:bg-primary-700 hover:scale-110 active:scale-95'
+                          ? 'bg-gray-600 cursor-not-allowed opacity-70' 
+                          : 'bg-primary-600 hover:bg-primary-500 active:bg-primary-700 hover:scale-110 active:scale-95 shadow-glow'
                         }
-                        text-white transition-all duration-200 shadow-glow touch-manipulation
-                        min-h-[44px] min-w-[44px]
+                        text-white transition-all duration-200 touch-manipulation cursor-pointer
+                        min-h-[48px] min-w-[48px] relative z-50
+                        border-2 border-transparent hover:border-primary-400 touch-control
                       `}
                       disabled={mode === "hls" && isPlaying}
                       title={mode === "hls" ? (isPlaying ? 'Stream HLS in corso' : 'Avvia stream HLS') : (isPlaying ? 'Pausa' : 'Play')}
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        touchAction: 'manipulation'
+                      }}
                     >
-                      {mode === "hls" ? (
-                        isPlaying ? '🔴' : '▶️'
-                      ) : (
-                        isPlaying ? '⏸️' : '▶️'
-                      )}
+                      <span className="text-lg xs:text-xl sm:text-2xl pointer-events-none">
+                        {mode === "hls" ? (
+                          isPlaying ? '🔴' : '▶️'
+                        ) : (
+                          isPlaying ? '⏸️' : '▶️'
+                        )}
+                      </span>
                     </button>
 
                     {/* Volume */}
                     <div className="flex items-center gap-1.5 xs:gap-2">
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
                           const video = videoRef.current;
                           if (video) {
+                            // Feedback aptico
+                            if (navigator.vibrate) {
+                              navigator.vibrate(10);
+                            }
                             setIsMuted(!isMuted);
                             video.muted = !isMuted;
                           }
                         }}
-                        className="w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 text-white transition-all duration-200 touch-manipulation min-h-[44px] min-w-[44px]"
+                        className="
+                          w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 
+                          flex items-center justify-center rounded-full 
+                          bg-white/10 hover:bg-white/20 active:bg-white/40 
+                          text-white transition-all duration-200 
+                          touch-manipulation cursor-pointer
+                          min-h-[48px] min-w-[48px] relative z-50
+                          hover:scale-110 active:scale-95
+                          border-2 border-transparent hover:border-white/20
+                        "
+                        title={isMuted ? 'Attiva audio' : 'Disattiva audio'}
+                        style={{
+                          WebkitTouchCallout: 'none',
+                          WebkitUserSelect: 'none',
+                          touchAction: 'manipulation'
+                        }}
                       >
-                        {isMuted ? '🔇' : volume > 0.5 ? '🔊' : '🔉'}
+                        <span className="text-base xs:text-lg sm:text-xl pointer-events-none">
+                          {isMuted ? '🔇' : volume > 0.5 ? '🔊' : '🔉'}
+                        </span>
                       </button>
                       <input
                         type="range"
@@ -2390,9 +2493,13 @@ function PlayerModal({ open, channel, onClose }) {
 
                   <div className="flex items-center gap-1.5 xs:gap-2 sm:gap-3">
                     {/* Player nativo iOS (solo se iOS e HLS disponibile) */}
-                    {isIOS && channel.hlsSrc && (
+                    {isIOS && channel.hlsSrc && mode === "hls" && (
                       <button
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (navigator.vibrate) navigator.vibrate(15);
+                          
                           const video = videoRef.current;
                           if (video && typeof video.webkitEnterFullscreen === 'function') {
                             try {
@@ -2405,20 +2512,32 @@ function PlayerModal({ open, channel, onClose }) {
                           }
                         }}
                         className="
-                          w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full 
-                          bg-blue-600/20 hover:bg-blue-600/40 active:bg-blue-600/60 text-blue-400 transition-all duration-200
-                          hover:scale-110 active:scale-95 touch-manipulation
-                          min-h-[44px] min-w-[44px] border border-blue-500/20
+                          w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 
+                          flex items-center justify-center rounded-full 
+                          bg-blue-600/20 hover:bg-blue-600/40 active:bg-blue-600/60 
+                          text-blue-400 transition-all duration-200
+                          hover:scale-110 active:scale-95 touch-manipulation cursor-pointer
+                          min-h-[48px] min-w-[48px] border-2 border-blue-500/20 hover:border-blue-400
+                          relative z-50
                         "
                         title="Player nativo iOS"
+                        style={{
+                          WebkitTouchCallout: 'none',
+                          WebkitUserSelect: 'none',
+                          touchAction: 'manipulation'
+                        }}
                       >
-                        <span className="text-sm xs:text-base sm:text-lg">🍎</span>
+                        <span className="text-base xs:text-lg sm:text-xl pointer-events-none">🍎</span>
                       </button>
                     )}
 
                     {/* AirPlay - sempre visibile per canali HLS */}
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (navigator.vibrate) navigator.vibrate(12);
+                        
                         const video = videoRef.current;
                         if (video && typeof video.webkitShowPlaybackTargetPicker === "function") {
                           video.webkitShowPlaybackTargetPicker();
@@ -2427,33 +2546,81 @@ function PlayerModal({ open, channel, onClose }) {
                         }
                       }}
                       className="
-                        w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full 
-                        bg-white/10 hover:bg-white/20 active:bg-white/30 text-white transition-all duration-200
-                        hover:scale-110 active:scale-95 touch-manipulation
-                        min-h-[44px] min-w-[44px]
+                        w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 
+                        flex items-center justify-center rounded-full 
+                        bg-white/10 hover:bg-white/20 active:bg-white/40 
+                        text-white transition-all duration-200
+                        hover:scale-110 active:scale-95 touch-manipulation cursor-pointer
+                        min-h-[48px] min-w-[48px] relative z-50
+                        border-2 border-transparent hover:border-white/20
                       "
                       title={isSafari ? "AirPlay" : "AirPlay (solo Safari/iOS)"}
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        touchAction: 'manipulation'
+                      }}
                     >
-                      <span className="text-sm xs:text-base sm:text-lg">📡</span>
+                      <span className="text-base xs:text-lg sm:text-xl pointer-events-none">📡</span>
                     </button>
 
                     {/* Picture-in-Picture */}
                     <button
-                      onClick={togglePip}
-                      className="w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 text-white transition-all duration-200 hover:scale-110 active:scale-95 touch-manipulation min-h-[44px] min-w-[44px]"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (navigator.vibrate) navigator.vibrate(10);
+                        togglePip();
+                      }}
+                      className="
+                        w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 
+                        flex items-center justify-center rounded-full 
+                        bg-white/10 hover:bg-white/20 active:bg-white/40 
+                        text-white transition-all duration-200 
+                        hover:scale-110 active:scale-95 touch-manipulation cursor-pointer
+                        min-h-[48px] min-w-[48px] relative z-50
+                        border-2 border-transparent hover:border-white/20
+                      "
                       title="Picture-in-Picture"
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        touchAction: 'manipulation'
+                      }}
                     >
-                      <span className="text-sm xs:text-base sm:text-lg">⬜</span>
+                      <span className="text-base xs:text-lg sm:text-xl pointer-events-none">⬜</span>
                     </button>
 
                     {/* Fullscreen con icona migliorata */}
                     <button
-                      onClick={toggleFullscreen}
-                      className="w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 text-white transition-all duration-200 hover:scale-110 active:scale-95 touch-manipulation min-h-[44px] min-w-[44px]"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        // Feedback aptico su dispositivi supportati
+                        if (navigator.vibrate) {
+                          navigator.vibrate(20);
+                        }
+                        toggleFullscreen();
+                      }}
+                      className="
+                        w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 
+                        flex items-center justify-center rounded-full 
+                        bg-white/10 hover:bg-white/20 active:bg-white/40 
+                        text-white transition-all duration-200 
+                        hover:scale-110 active:scale-95 
+                        touch-manipulation cursor-pointer
+                        min-h-[48px] min-w-[48px] relative z-50
+                        border-2 border-transparent hover:border-white/20
+                      "
                       title="Schermo intero (F)"
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        touchAction: 'manipulation'
+                      }}
                     >
-                      <span className="text-sm xs:text-base sm:text-lg">
-                        {isFullscreen ? '↙️' : '↗️'}
+                      <span className="text-base xs:text-lg sm:text-xl pointer-events-none">
+                        {isFullscreen ? '🗗' : '🗖'}
                       </span>
                     </button>
                   </div>
