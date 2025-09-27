@@ -29,7 +29,9 @@ export const SPORTS_IMAGES = {
   sky_sport_24: "https://images.seeklogo.com/logo-png/61/1/sky-sport-24-logo-png_seeklogo-612282.png",
   
   // Eurosport 1 - Olympic and European sports
-  eurosport_1: "https://e7.pngegg.com/pngimages/917/857/png-clipart-eurosport-1-logo-lyngsat-television-hot-bird-13b-discovery-channel-logo-purple-television.png"
+  eurosport_1: "https://e7.pngegg.com/pngimages/917/857/png-clipart-eurosport-1-logo-lyngsat-television-hot-bird-13b-discovery-channel-logo-purple-television.png",
+
+  dazn_1: "https://www.ilpost.it/wp-content/uploads/2018/07/dazn.png"
 };
 
 // === CINEMA IMAGES ===

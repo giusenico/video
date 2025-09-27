@@ -78,6 +78,36 @@ const CHANNELS = [
     trending: true
   },
   {
+    id: "dazn-1",
+    name: "DAZN 1",
+    description: "Il meglio dello sport italiano e internazionale in diretta 24/7",
+    logo: getChannelLogo("dazn_1"),
+    thumbnail: getChannelThumbnail("dazn_1", CATEGORIES.SPORTS),
+    category: CATEGORIES.SPORTS,
+    quality: "4K HDR",
+    rating: 4.8,
+    year: "2024",
+    iframeSrc: "https://dlhd.dad/stream/stream-55.php",
+    hlsSrc: "https://card-images-save-two.s3.us-east-1.amazonaws.com/hls/4k/playlist.m3u8?token=qr9gk2s8wkd&v=1758969240399",
+    featured: true,
+    trending: true
+  },
+  {
+    id: "zona-dazn",
+    name: "Zona DAZN",
+    description: "Il meglio dello sport italiano e internazionale in diretta 24/7",
+    logo: getChannelLogo("dazn_1"),
+    thumbnail: getChannelThumbnail("dazn_1", CATEGORIES.SPORTS),
+    category: CATEGORIES.SPORTS,
+    quality: "4K HDR",
+    rating: 4.8,
+    year: "2024",
+    iframeSrc: "https://dlhd.dad/stream/stream-877.php",
+    hlsSrc: "https://card-images-save-two.s3.us-east-1.amazonaws.com/hls/4k/playlist.m3u8?token=qr9gk2s8wkd&v=1758969240399",
+    featured: true,
+    trending: true
+  },
+  {
     id: "sky-sport-f1",
     name: "Sky Sport F1",
     description: "Formula 1 in esclusiva: gare, qualifiche, prove libere e approfondimenti",
