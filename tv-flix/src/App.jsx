@@ -2132,79 +2132,11 @@ function PlayerModal({ open, channel, onClose }) {
           (navigator.connection.effectiveType === '2g' || navigator.connection.effectiveType === 'slow-2g') : false;
 
         // === CONFIGURAZIONE HLS ULTRA-OTTIMIZZATA PER STREAMING FLUIDO ===
-        // 🚀 OTTIMIZZAZIONI IMPLEMENTATE:
-        // ✅ 1. fetchSetup con AbortController per timeout end-to-end
-        // ✅ 2. backBufferLength ridotto a 30-60s per evitare GC/jank
-        // ✅ 3. liveBackBufferLength ~30-45s per performance ottimali
-        // ✅ 4. liveMaxLatencyDuration = 3x liveSyncDuration (coerenza parametri live)
-        // ✅ 5. Jitter in tutti i retry delays (evita thundering herd)
-        // ✅ 6. maxBufferLength + maxBufferSize insieme per controllo completo
-        // ✅ 7. lowLatencyMode esplicito: false per mobile/lenti, true solo per desktop veloci
-        // ✅ 8. maxFragLookUpTolerance: 0.25-0.5 per PTS sporchi
-        // ✅ 9. capLevelOnFPSDrop: true per limitare qualità su CPU sofferenti
-        // ✅ 10. Exponential backoff migliorato con jitter ±20%
         const hlsConfig = {
           // === CORE ENGINE ===
-          enableWorker: !isLowEndDevice, // Web Worker per performance (disabilitato su device deboli)
+          enableWorker: true, // Web Worker per performance
           startLevel: -1, // Auto quality iniziale
           capLevelToPlayerSize: true, // Limita qualità alla dimensione player
-          capLevelOnFPSDrop: true, // Limita risalita qualità quando la CPU soffre
-          
-          // === TOLERANZA E HARDENING ===
-          maxFragLookUpTolerance: 0.25, // Aiuta con manifest con PTS "sporchi"
-          
-          // === FETCH SETUP CON TIMEOUT E HEADERS ===
-          fetchSetup: (context, initParams, info) => {
-            const controller = new AbortController();
-            
-            // Timeout adattivo basato su network quality
-            const timeout = (() => {
-              if (isSlowConnection) return 45000; // 45s per connessioni lente
-              if (networkQuality === 'medium') return 25000; // 25s per connessioni medie
-              return 15000; // 15s per connessioni veloci
-            })();
-            
-            // Imposta timeout con AbortController
-            const timeoutId = setTimeout(() => {
-              controller.abort();
-            }, timeout);
-            
-            // Headers ottimizzati
-            const headers = {
-              ...initParams.headers,
-              'Cache-Control': isMobile ? 'no-cache' : 'max-age=300',
-              'Pragma': isMobile ? 'no-cache' : undefined,
-              'Accept-Encoding': 'gzip, deflate, br',
-              'User-Agent': navigator.userAgent
-            };
-            
-            // Rimuovi header undefined
-            Object.keys(headers).forEach(key => {
-              if (headers[key] === undefined) delete headers[key];
-            });
-            
-            const requestInit = {
-              ...initParams,
-              signal: controller.signal,
-              headers,
-              mode: 'cors',
-              credentials: 'omit',
-              cache: networkQuality === 'fast' ? 'default' : 'no-cache'
-            };
-            
-            console.info(`Fetch setup: ${info?.type || 'fragment'}, timeout: ${timeout}ms, network: ${networkQuality}`);
-            
-            return {
-              abortController: controller,
-              request: new Request(context.url, requestInit),
-              cleanup: () => {
-                clearTimeout(timeoutId);
-                if (!controller.signal.aborted) {
-                  controller.abort();
-                }
-              }
-            };
-          },
           
           // === ADAPTIVE BITRATE ULTRA-INTELLIGENTE (ABR 3.0) ===
           // Algoritmi predittivi avanzati con machine learning integrato
@@ -2279,18 +2211,18 @@ function PlayerModal({ open, channel, onClose }) {
           })(),
           
           // === BUFFER MANAGEMENT ULTRA-INTELLIGENTE OTTIMIZZATO ===
-          // Buffer ottimizzati per prevenire rebuffering con soglie più conservative
+          // Buffer ottimizzati per prevenire rebuffering con soglie più aggressive per connessioni decenti
           maxBufferLength: (() => {
-            // Buffer più contenuto per gestire memoria e GC
+            // Calcolo dinamico con soglie più generose per connessioni decenti
             const baseBuffer = {
-              slow: 45,     // 45s per connessioni lente
-              medium: 60,   // 60s per connessioni medie (ottimizzato)
-              fast: 60      // 60s anche per connessioni veloci (desktop buoni)
-            }[networkQuality] || 60;
+              slow: 120,    // 2 minuti per connessioni lente
+              medium: 150,  // 2.5 minuti per connessioni medie (aumentato da 75s)
+              fast: 90      // 1.5 minuti per connessioni veloci (aumentato da 45s)
+            }[networkQuality] || 90;
             
-            // Riduzione più conservativa per device deboli
-            if (isLowEndDevice) return Math.max(30, baseBuffer * 0.7); // 30-45s per low-end
-            if (isMobile) return Math.max(30, baseBuffer * 0.75); // 30-45s per mobile
+            // Adattamento device meno aggressivo per evitare buffer troppo piccoli
+            if (isLowEndDevice) return Math.max(45, baseBuffer * 0.7); // Aumentato minimo
+            if (isMobile) return Math.max(75, baseBuffer * 0.85); // Meno penalizzante
             return baseBuffer;
           })(),
           maxMaxBufferLength: (() => {
@@ -2373,18 +2305,12 @@ function PlayerModal({ open, channel, onClose }) {
           
           // === BUFFER AVANZATO OTTIMIZZATO PER CONTINUITÀ ===
           backBufferLength: (() => {
-            // Back buffer più contenuto per ridurre memoria
-            if (isSlowConnection) return 80;  // 80s per connessioni lente
-            if (isMobile) return 45;          // 45s per mobile
-            return 60;                        // 60s per desktop
-          })(),
-          
-          // === PARAMETRI LIVE OTTIMIZZATI ===
-          liveBackBufferLength: (() => {
-            // Live back buffer più contenuto
-            if (isSlowConnection) return 45; // 45s per connessioni lente
-            if (isMobile) return 30;         // 30s per mobile
-            return 45;                       // 45s per desktop
+            // Buffer più generoso per seek fluidi su connessioni decenti
+            if (isSlowConnection) return 180; // Più storia per connessioni lente
+            if (isMobile && networkQuality === 'medium') return 150; // Storia estesa mobile medio
+            if (isMobile) return 120; // Storia aumentata su mobile
+            if (networkQuality === 'medium') return 120; // Storia generosa desktop medio
+            return 100; // Storia normale desktop veloce
           })(),
           bufferFlushOnTrackSwitch: false, // Non svuotare buffer sui cambi traccia
           
@@ -2411,22 +2337,8 @@ function PlayerModal({ open, channel, onClose }) {
             return 15000;                       // 15s per desktop
           })(),
           
-          // === RETRY DELAY CON JITTER ===
-          fragLoadingRetryDelay: (() => {
-            // Base delay con jitter per evitare thundering herd
-            const baseDelay = 200;
-            const jitter = Math.random() * 200; // 0-200ms di jitter
-            return Math.floor(baseDelay + jitter);
-          })(),
-          
-          // === RETRY PERSONALIZZATO CON EXPONENTIAL BACKOFF E JITTER ===
-          fragLoadingRetryDelayFactor: 2.0, // Fattore di crescita esponenziale
-          fragLoadingMaxRetryTimeout: (() => {
-            // Timeout con jitter aggiunto
-            const baseTimeout = isSlowConnection ? 40000 : (isMobile ? 25000 : 15000);
-            const jitter = Math.random() * 5000; // 0-5s di jitter
-            return Math.floor(baseTimeout + jitter);
-          })(),
+          // Delay iniziale più veloce, ma con crescita esponenziale
+          fragLoadingRetryDelay: 200, // Inizia più veloce (200ms)
           
           // Timeout base più generoso ma adattivo
           fragLoadingTimeOut: (() => {
@@ -2436,32 +2348,17 @@ function PlayerModal({ open, channel, onClose }) {
           })(),
           
           // === RETRY AVANZATI PER ALTRI COMPONENTI ===
-          // === MANIFEST LOADING CON JITTER ===
+          // === RETRY AVANZATI PER ALTRI COMPONENTI ===
+          // Manifest con retry più aggressivi
           manifestLoadingMaxRetry: isSlowConnection ? 15 : 12,
-          manifestLoadingMaxRetryTimeout: (() => {
-            const baseTimeout = isSlowConnection ? 30000 : 20000;
-            const jitter = Math.random() * 3000;
-            return Math.floor(baseTimeout + jitter);
-          })(),
-          manifestLoadingRetryDelay: (() => {
-            const baseDelay = 250;
-            const jitter = Math.random() * 150;
-            return Math.floor(baseDelay + jitter);
-          })(),
+          manifestLoadingMaxRetryTimeout: isSlowConnection ? 30000 : 20000,
+          manifestLoadingRetryDelay: 250, // Delay iniziale manifest
           manifestLoadingTimeOut: isSlowConnection ? 35000 : 25000,
           
-          // === LEVEL LOADING CON JITTER ===
+          // Level loading con gestione errori migliorata  
           levelLoadingMaxRetry: isSlowConnection ? 12 : 10,
-          levelLoadingMaxRetryTimeout: (() => {
-            const baseTimeout = isSlowConnection ? 25000 : 18000;
-            const jitter = Math.random() * 2000;
-            return Math.floor(baseTimeout + jitter);
-          })(),
-          levelLoadingRetryDelay: (() => {
-            const baseDelay = 300;
-            const jitter = Math.random() * 100;
-            return Math.floor(baseDelay + jitter);
-          })(),
+          levelLoadingMaxRetryTimeout: isSlowConnection ? 25000 : 18000,
+          levelLoadingRetryDelay: 300,
           levelLoadingTimeOut: isSlowConnection ? 30000 : 20000,
           
           // === NUOVI PARAMETRI ANTI-STALLO ===
@@ -2473,59 +2370,23 @@ function PlayerModal({ open, channel, onClose }) {
           
           // === OTTIMIZZAZIONI STREAMING ===
           progressive: true, // Download progressivo per startup veloce
-          
-          // === LOW LATENCY MODE OTTIMIZZATO ===
-          lowLatencyMode: (() => {
-            // Disabilita per mobile e reti lente per stabilità
-            if (isMobile || isSlowConnection) return false;
-            // Abilita solo per desktop con rete veloce e contenuto che supporta LL-CMAF
-            return networkQuality === 'fast' && !isLowEndDevice;
-          })(),
-          
-          // === PARAMETRI LIVE COERENTI ===
-          liveSyncDuration: 2, // Sincronia live stream
-          liveMaxLatencyDuration: 6, // 3x liveSyncDuration (2 * 3 = 6)
+          lowLatencyMode: !isMobile && !isSlowConnection, // Bassa latenza solo su desktop con buona connessione
+          liveBackBufferLength: 60, // Buffer indietro per stream live
+          liveSyncDuration: 2, // Sincronia live stream più stretta
+          liveMaxLatencyDuration: 15, // Latenza massima accettabile per live
           liveDurationInfinity: true, // Gestione durata infinita per live
           
           // === OTTIMIZZAZIONI NETWORK ===
           testBandwidth: !isSlowConnection, // Test banda solo se la connessione è buona
           enableSoftwareAES: true, // AES software per compatibilità
-          
-          // === XHR SETUP MIGLIORATO (fallback se fetchSetup non disponibile) ===
           xhrSetup: (xhr, url) => {
-            // Timeout con jitter
-            const baseTimeout = isSlowConnection ? 30000 : 15000;
-            const jitter = Math.random() * 2000;
-            xhr.timeout = Math.floor(baseTimeout + jitter);
-            
-            // Headers ottimizzati
+            // Ottimizzazioni XHR per migliori performance di rete
+            xhr.timeout = isSlowConnection ? 30000 : 15000;
             if (isMobile) {
               xhr.setRequestHeader('Cache-Control', 'no-cache');
               xhr.setRequestHeader('Pragma', 'no-cache');
             }
-            xhr.setRequestHeader('Accept-Encoding', 'gzip, deflate, br');
           },
-          
-          // === LIMITE BUFFER IN SECONDI ===
-          maxBufferSize: (() => {
-            const deviceMemory = navigator.deviceMemory || 4;
-            const connectionSpeed = {
-              slow: 0.6,    // Coefficiente per connessioni lente
-              medium: 0.85, // Coefficiente per connessioni medie
-              fast: 1.1     // Coefficiente per connessioni veloci
-            }[networkQuality] || 0.8;
-            
-            let baseSize;
-            if (isLowEndDevice || deviceMemory <= 2) {
-              baseSize = 40 * 1000 * 1000; // 40MB per device deboli
-            } else if (isMobile || deviceMemory <= 4) {
-              baseSize = 80 * 1000 * 1000; // 80MB per mobile
-            } else {
-              baseSize = 120 * 1000 * 1000; // 120MB per desktop
-            }
-            
-            return Math.floor(baseSize * connectionSpeed);
-          })(),
           
           // === GESTIONE ERRORI AVANZATA ===
           enableCEA708Captions: false, // Disabilita caption per performance
@@ -2538,16 +2399,12 @@ function PlayerModal({ open, channel, onClose }) {
             // Configurazione ultra-conservativa per dispositivi deboli
             startLevel: 0, // Inizia sempre con qualità minima
             abrEwmaDefaultEstimate: 150000, // Stima molto conservativa
-            maxBufferLength: 30, // Buffer minimo per risparmiare memoria
-            maxMaxBufferLength: 45,
-            maxBufferSize: 30 * 1000 * 1000, // 30MB su device deboli
-            backBufferLength: 30, // Back buffer ridotto
-            liveBackBufferLength: 15, // Live back buffer minimo
+            maxBufferLength: 20, // Buffer minimo per risparmiare memoria
+            maxMaxBufferLength: 40,
+            maxBufferSize: 20 * 1000 * 1000, // Solo 20MB su device deboli
             enableWorker: false, // Disabilita worker su device molto vecchi
             progressive: false, // Disabilita progressive su device lenti
             lowLatencyMode: false, // Mai bassa latenza su device deboli
-            capLevelOnFPSDrop: true, // Sempre attivo su device deboli
-            maxFragLookUpTolerance: 0.5, // Più tollerante su device lenti
           }),          // === OTTIMIZZAZIONI CONNESSIONE LENTA ===
           ...(isSlowConnection && {
             // Configurazione speciale per connessioni 2G/3G lente
@@ -2832,30 +2689,26 @@ function PlayerModal({ open, channel, onClose }) {
                 const maxNetworkRetries = isSlowConnection ? 8 : (isMobile ? 6 : 4);
                 
                 if (networkErrorCount <= maxNetworkRetries) {
-                    // === STRATEGIA RETRY EXPONENTIAL BACKOFF CON JITTER MIGLIORATA ===
+                    // === STRATEGIA RETRY EXPONENTIAL BACKOFF MIGLIORATA ===
                   let retryDelay;
                   
                   // Backoff più intelligente basato su tipo di errore e condizioni
                   if (networkErrorCount <= 2) {
-                    // Primi tentativi: retry veloce con jitter
-                    const baseDelay = 500 * Math.pow(2, networkErrorCount - 1); // 500ms, 1s
-                    const jitter = Math.random() * 0.4 + 0.8; // Jitter ±20%
-                    retryDelay = Math.floor(baseDelay * jitter);
+                    // Primi tentativi: retry veloce
+                    retryDelay = 500 * Math.pow(2, networkErrorCount - 1); // 500ms, 1s
                   } else if (networkErrorCount <= 4) {
-                    // Tentativi intermedi: crescita moderata con jitter
-                    const baseDelay = 2000 * Math.pow(1.5, networkErrorCount - 3); // 2s, 3s
-                    const jitter = Math.random() * 0.4 + 0.8; // Jitter ±20%
-                    retryDelay = Math.floor(baseDelay * jitter);
+                    // Tentativi intermedi: crescita moderata
+                    retryDelay = 2000 * Math.pow(1.5, networkErrorCount - 3); // 2s, 3s
                   } else {
-                    // Tentativi finali: crescita più lenta con jitter per evitare thundering herd
+                    // Tentativi finali: crescita più lenta ma con jitter
                     const baseDelay = 5000 + (3000 * (networkErrorCount - 4));
-                    const jitter = Math.random() * 0.4 + 0.8; // Jitter ±20%
-                    retryDelay = Math.floor(baseDelay * jitter); // 4-6s, 6.4-9.6s, 8.8-13.2s...
+                    const jitter = Math.random() * 2000; // Jitter per evitare thundering herd
+                    retryDelay = baseDelay + jitter; // 5-7s, 8-10s, 11-13s...
                   }
                   
                   // Adattamento per connessioni lente (più tempo)
                   if (isSlowConnection) {
-                    retryDelay = Math.floor(retryDelay * 1.5);
+                    retryDelay *= 1.5;
                   }
                   
                   // Cap massimo per evitare attese troppo lunghe
