@@ -88,7 +88,7 @@ const CHANNELS = [
     rating: 4.8,
     year: "2024",
     iframeSrc: "https://dlhd.dad/stream/stream-55.php",
-    hlsSrc: "https://card-images-save-two.s3.us-east-1.amazonaws.com/hls/4k/playlist.m3u8?token=qr9gk2s8wkd&v=1758969240399",
+    hlsSrc: "",
     featured: true,
     trending: true
   },
@@ -103,7 +103,7 @@ const CHANNELS = [
     rating: 4.8,
     year: "2024",
     iframeSrc: "https://dlhd.dad/stream/stream-877.php",
-    hlsSrc: "https://card-images-save-two.s3.us-east-1.amazonaws.com/hls/4k/playlist.m3u8?token=qr9gk2s8wkd&v=1758969240399",
+    hlsSrc: "",
     featured: true,
     trending: true
   },
@@ -1963,30 +1963,36 @@ function PlayerModal({ open, channel, onClose }) {
             </div>
             <div className="flex items-center gap-2 xs:gap-3">
               {channel.hlsSrc && (
-                <div className="hidden md:flex gap-1 glass-effect rounded-xl p-1">
+                <div className="flex gap-1 glass-effect rounded-xl p-1">
                   <button
                     onClick={() => setMode("hls")}
                     className={`
-                      px-3 xs:px-4 py-1.5 xs:py-2 rounded-lg text-xs xs:text-sm font-medium transition-all duration-200
+                      px-2 xs:px-3 sm:px-4 py-1.5 xs:py-2 rounded-lg text-xs xs:text-sm font-medium transition-all duration-200
+                      touch-manipulation min-h-[44px]
                       ${mode === "hls" 
                         ? "bg-primary-600 text-white shadow-glow" 
-                        : "text-white/80 hover:text-white hover:bg-white/10"
+                        : "text-white/80 hover:text-white hover:bg-white/10 active:bg-white/20"
                       }
                     `}
+                    title="Modalità HLS - Controlli avanzati"
                   >
-                    📺 HLS
+                    <span className="sm:hidden">📺</span>
+                    <span className="hidden sm:inline">📺 HLS</span>
                   </button>
                   <button
                     onClick={() => setMode("iframe")}
                     className={`
-                      px-3 xs:px-4 py-1.5 xs:py-2 rounded-lg text-xs xs:text-sm font-medium transition-all duration-200
+                      px-2 xs:px-3 sm:px-4 py-1.5 xs:py-2 rounded-lg text-xs xs:text-sm font-medium transition-all duration-200
+                      touch-manipulation min-h-[44px]
                       ${mode === "iframe" 
                         ? "bg-primary-600 text-white shadow-glow" 
-                        : "text-white/80 hover:text-white hover:bg-white/10"
+                        : "text-white/80 hover:text-white hover:bg-white/10 active:bg-white/20"
                       }
                     `}
+                    title="Modalità iframe - Compatibilità universale"
                   >
-                    🖥️ IFRAME
+                    <span className="sm:hidden">🖥️</span>
+                    <span className="hidden sm:inline">🖥️ IFRAME</span>
                   </button>
                 </div>
               )}
@@ -2229,45 +2235,52 @@ function PlayerModal({ open, channel, onClose }) {
                   </div>
                 )}
                 
-                {/* HLS Streaming Indicator con stato rete */}
-                {mode === "hls" && (
-                  <div className="px-6 pb-2 flex items-center justify-center flex-wrap gap-2">
+                {/* Streaming Mode Indicator */}
+                <div className="px-6 pb-2 flex items-center justify-center flex-wrap gap-2">
+                  {mode === "hls" ? (
                     <div className="flex items-center gap-2 bg-blue-600 px-4 py-1 rounded-full">
                       <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
                       <span className="text-white text-sm font-bold">STREAMING HLS</span>
                     </div>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-purple-600 px-4 py-1 rounded-full">
+                      <div className="w-2 h-2 bg-white rounded-full"></div>
+                      <span className="text-white text-sm font-bold">MODALITÀ IFRAME</span>
+                    </div>
+                  )}
                     
-                    {/* Indicatore fullscreen disponibile su mobile */}
-                    {(isIOS || /Android|Mobile/i.test(navigator.userAgent)) && (
-                      <div className="flex items-center gap-1 bg-green-600/20 px-3 py-1 rounded-full">
-                        <span className="text-green-400 text-xs">📱 Fullscreen disponibile</span>
-                      </div>
-                    )}
+                  {/* Indicatore fullscreen disponibile su mobile */}
+                  {(isIOS || /Android|Mobile/i.test(navigator.userAgent)) && (
+                    <div className="flex items-center gap-1 bg-green-600/20 px-3 py-1 rounded-full">
+                      <span className="text-green-400 text-xs">📱 Fullscreen disponibile</span>
+                    </div>
+                  )}
                     
                     {/* Indicatore qualità rete */}
-                    {networkQuality !== 'unknown' && (
+                  {networkQuality !== 'unknown' && (
+                    <div className={`
+                      flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium
+                      ${networkQuality === 'fast' ? 'bg-green-600' : 
+                        networkQuality === 'medium' ? 'bg-yellow-600' : 'bg-red-600'}
+                    `}>
                       <div className={`
-                        flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium
-                        ${networkQuality === 'fast' ? 'bg-green-600' : 
-                          networkQuality === 'medium' ? 'bg-yellow-600' : 'bg-red-600'}
-                      `}>
-                        <div className={`
-                          w-1.5 h-1.5 rounded-full 
-                          ${networkQuality === 'fast' ? 'bg-green-300 animate-pulse' : 
-                            networkQuality === 'medium' ? 'bg-yellow-300 animate-pulse' : 'bg-red-300 animate-pulse'}
-                        `}></div>
-                        <span className="hidden xs:inline">{
-                          networkQuality === 'fast' ? 'Rete Veloce' :
-                          networkQuality === 'medium' ? 'Rete Media' : 'Rete Lenta'
-                        }</span>
-                        <span className="xs:hidden">{
-                          networkQuality === 'fast' ? '⚡' :
-                          networkQuality === 'medium' ? '🔄' : '🐢'
-                        }</span>
-                      </div>
-                    )}
-                    
-                    {/* Indicatore qualità streaming */}
+                        w-1.5 h-1.5 rounded-full 
+                        ${networkQuality === 'fast' ? 'bg-green-300 animate-pulse' : 
+                          networkQuality === 'medium' ? 'bg-yellow-300 animate-pulse' : 'bg-red-300 animate-pulse'}
+                      `}></div>
+                      <span className="hidden xs:inline">{
+                        networkQuality === 'fast' ? 'Rete Veloce' :
+                        networkQuality === 'medium' ? 'Rete Media' : 'Rete Lenta'
+                      }</span>
+                      <span className="xs:hidden">{
+                        networkQuality === 'fast' ? '⚡' :
+                        networkQuality === 'medium' ? '🔄' : '🐢'
+                      }</span>
+                    </div>
+                  )}
+                  
+                  {/* Indicatore qualità streaming - solo per HLS */}
+                  {mode === "hls" && (
                     <button 
                       onClick={() => setAdaptiveQuality(!adaptiveQuality)}
                       className={`
@@ -2280,8 +2293,16 @@ function PlayerModal({ open, channel, onClose }) {
                       <span>{adaptiveQuality ? '🔄' : '⚙️'}</span>
                       <span className="hidden xs:inline">{adaptiveQuality ? 'Auto' : 'Manuale'}</span>
                     </button>
-                  </div>
-                )}
+                  )}
+                  
+                  {/* Indicatore modalità iframe */}
+                  {mode === "iframe" && (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-orange-600">
+                      <span>🖥️</span>
+                      <span className="hidden xs:inline">Player Esterno</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Control Buttons */}
                 <div className="flex items-center justify-between px-3 xs:px-4 sm:px-6 pb-3 sm:pb-4">
@@ -2439,7 +2460,19 @@ function PlayerModal({ open, channel, onClose }) {
                 </div>
               </div>
 
-              {/* Keyboard Shortcuts Help */}
+              {/* Mobile Mode Selector Hint */}
+              {showControls && (isIOS || /Android|Mobile/i.test(navigator.userAgent)) && (
+                <div className="absolute top-4 left-4 right-4 glass-effect rounded-lg p-3 text-xs text-white/80 lg:hidden">
+                  <div className="font-semibold mb-2 text-center">💡 Modalità Streaming</div>
+                  <div className="text-center space-y-1">
+                    <div>📺 <strong>HLS:</strong> Controlli avanzati, gesture touch</div>
+                    <div>🖥️ <strong>IFRAME:</strong> Player esterno, massima compatibilità</div>
+                    <div className="mt-2 text-xs opacity-75">Cambia modalità dal menu in alto</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Desktop Keyboard Shortcuts Help */}
               {showControls && (
                 <div className="absolute top-4 right-4 glass-effect rounded-lg p-3 text-xs text-white/80 max-w-xs hidden lg:block">
                   <div className="font-semibold mb-2">Scorciatoie:</div>
@@ -2452,8 +2485,9 @@ function PlayerModal({ open, channel, onClose }) {
                     </div>
                   ) : (
                     <div>
-                      <div>Spazio: Play/Pausa • F: Fullscreen • M: Muto</div>
-                      <div>←→: Salta 10s • ↑↓: Volume</div>
+                      <div>🖥️ MODALITÀ IFRAME</div>
+                      <div>Controlli gestiti dal player esterno</div>
+                      <div>F: Fullscreen • Compatibilità universale</div>
                     </div>
                   )}
                 </div>
